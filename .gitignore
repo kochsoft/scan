@@ -2,5 +2,6 @@
 .idea
 tmp
 PyEnv
+factory
 __pycache__
 

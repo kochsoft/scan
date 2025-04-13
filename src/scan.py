@@ -23,7 +23,6 @@ Literature:
 """
 import os
 import sys
-import time
 import logging
 import argparse
 from enum import Enum
@@ -38,7 +37,7 @@ from PIL.Image import Image
 # Default values for some config parameters. Adjust to your own needs.
 defaults = {
     # Target device identifier. Use --list to get options. 'dev' keys are the first entries in each device tuple.
-    'dev': 'airscan:e0:EPSON ET-4850 Series',
+    'code': 'airscan:e0:EPSON ET-4850 Series',
     # Dots per inch.
     'dpi': 72,
     'pfname_out': os.path.expanduser(r'~/scan.pdf')
@@ -87,8 +86,10 @@ class Scan:
             Scan.data_devices_info = sane.get_devices()
 
     @staticmethod
-    def complete_code_hint(code_hint) -> Optional[str]:
+    def complete_code_hint(code_hint: Optional[str] = None) -> Optional[str]:
         """:returns a proper code for sane.open. Or None, in case of failure."""
+        if code_hint is None:
+            code_hint = defaults['code']
         for code_dev in Scan.data_devices_info:
             code = code_dev[0].lower()
             if code_hint.lower() == code:
@@ -139,9 +140,9 @@ class Scan:
 
     def __init__(self, cb_print: Callable[[str], None] = print, args: Optional[List[str]] = None):
         self.cb_print = cb_print  # type: Callable[[str], None]
+        arguments = self.parse_arguments(args)
         self.init_static()
 
-        arguments = self.parse_arguments(args)
         if arguments.list:
             self.print(Scan.available_codes2str())
             sys.exit(0)
@@ -261,12 +262,12 @@ $ python3 {Path(sys.argv[0]).name}"""
         parser = argparse.ArgumentParser(prog='scan.py', description=desc, epilog=epilog, formatter_class=RawTextHelpFormatter)
         parser.add_argument('--list', action='store_true', help="Identify all available devices and print the list.")
         parser.add_argument('--dev', type=str, help="At least part of a device name. From known devices will use the "+\
-                            f"first one that fits. If none is given, default '{defaults['dev']}' will be used.", default=defaults['dev'])
+                            f"first one that fits. If none is given, default '{defaults['code']}' will be used.", default=defaults['code'])
         parser.add_argument('--png', action='store_true', help='Produce a set of png graphics rather than a comprehensive pdf file.')
         parser.add_argument('--a4', action='store_true', help="Enforce A4 format.")
         group = parser.add_mutually_exclusive_group()
         group.add_argument('--scan', action='store_true', help='Do a single flatbed scan.')
-        group.add_argument('--scans', action='store_true', help='Do multiple single flatbed scans.')
+        #group.add_argument('--scans', action='store_true', help='Do multiple single flatbed scans.')
         group.add_argument('--multi', action='store_true', help='Do an Automatic Document Feeder (ADF) scan.')
         parser.add_argument('pfname_out', nargs='?', type=str, help="Target pfname for scanner output.", default=defaults['pfname_out'])
         parsed = parser.parse_args(args)
