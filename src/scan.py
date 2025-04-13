@@ -18,17 +18,20 @@ Literature:
     https://github.com/python-pillow/Sane/issues/23
 [3] Make even multiple PIL images into one PDF.
     https://stackoverflow.com/questions/27327513/create-pdf-from-a-list-of-images
+[4] Save an Image as A4 in size.
+    https://stackoverflow.com/questions/27271138/python-pil-pillow-pad-image-to-desired-size-eg-a4
 """
 import sys
-import sane
-import _sane
-import argparse
-from argparse import RawTextHelpFormatter
-from pathlib import Path
-from typing import Optional, List, Tuple, Callable
 import time
 import logging
-
+import argparse
+from enum import Enum
+from pathlib import Path
+from argparse import RawTextHelpFormatter
+from typing import Optional, List, Dict, Tuple, Callable
+import sane
+import _sane
+from PIL.Image import Image
 
 # > config.sys. ------------------------------------------------------
 # Default values for some config parameters. Adjust to your own needs.
@@ -51,11 +54,108 @@ _log = logging.getLogger()
 regexp_invalid_pfname_chars = r'[/\\?%*:|"<> !]'
 
 
+class E_OutputType(Enum):
+    OT_UNSPECIFIED = 0
+    OT_PDF = 1
+    OT_PDF_A4 = 2
+    OT_PNG = 3
+
+    def to_format(self) -> Optional[str]:
+        """:returns a string that can be used as 'format' parameter in a Pil.Image.Image object."""
+        # https://pillow.readthedocs.io/en/stable/reference/Image.html
+        if self in (E_OutputType.OT_PDF, E_OutputType.OT_PDF_A4):
+            return 'PDF'
+        elif self == E_OutputType.OT_PNG:
+            return 'PNG'
+        return None
+
+
+class Device:
+    def __init__(self, hint_dev: str, code_devs: List[Tuple[str, str, str, str]]):
+        """:param hint_dev: Device string as may be given by the user. Could be incomplete.
+        :param code_devs: List of device tuples as returned by sane.get_device().
+        [Note: It is a design decision that this will not call 'sane.get_devices()' automatically.
+        That call is rather expensive and should not be used more often than strictly necessary.]"""
+        # This object may become invalid at any time a sane-call raises an exception.
+        self.is_valid = False  # type: bool
+        self._device = None  # type: Optional[sane.SaneDev]
+        self.code_devs = code_devs  # type: List[Tuple[str, str, str, str]]
+        if not self.code_devs:
+            _log.warning("Unable to create Device. Given list of available devices is empty.")
+            return
+        if not hint_dev:
+            hint_dev = defaults['dev']
+        self.code_dev = self.get_code_dev(hint_dev)
+        if not self.code_dev:
+            _log.warning(f"Failure to identify target device from hint '{hint_dev}'")
+            return
+        self.is_valid = True
+
+    @property
+    def dev(self) -> Optional[str]:
+        """:returns this device code string for sane.open(..) or None if not available."""
+        if self.code_dev is None:
+            return None
+        else:
+            return self.code_dev[0]
+
+    @property
+    def device(self) -> Optional[sane.SaneDev]:
+        return self._device
+
+    def create_device(self) -> Optional[sane.SaneDev]:
+        """Closes a potentially existing self._device and attempts to open a new one, ready for scanning.
+        Will write the resulting object into self._device.
+        :return Will also return a reference to the resulting object. Or None, in case of failure."""
+        dev = self.dev
+        if not dev:
+            return None
+        if self._device:
+            self._device.close()
+            self._device = None
+            return None
+        try:
+            self._device = sane.open(dev)
+        except _sane.error as err:
+            _log.warning(f"Failure to open device '{dev}': {err}")
+        return self._device
+
+    def close_device(self):
+        """Closes the device and resets self._device to None."""
+        if self._device is not None:
+            self._device.close()
+        self._device = None
+
+    def get_code_dev(self, hint_dev: str) -> Optional[str]:
+        """Given a user-spawned hint, return the target device code for sane.open(..).
+        Or None, in case of failure."""
+        for code_dev in self.code_devs:
+            code = code_dev[0].lower()
+            if hint_dev == code:
+                return code
+        for code_dev in self.code_devs:
+            code = str(code_dev[0]).lower()
+            if hint_dev in code:
+                return code
+        return None
+
+    @staticmethod
+    def code_dev2str(code: Tuple[str, str, str, str]):
+        """:param code: Device code tuple, like they are returned by sane.get_devices().
+        :returns: Human-readable string representation of the given device code tuple."""
+        if code is None:
+            return 'None'
+        if len(code) != 4:
+            return f"Weird device code of len=={len(code)} encountered: {code}"
+        return f"{code[2]}: dev code '{code[0]}'"
+
+
 class Scan:
+    """Main class for the command line script of this project."""
     def __init__(self, cb_print: Callable[[str], None] = print, args: Optional[List[str]] = None):
         self.cb_print = cb_print  # type: Callable[[str], None]
-        self.device = None  # type: Optional[sane.SaneDev]
-        self.known_devs = None  # type: Optional[List[Tuple[str]]]
+        self.device = Optional[Device]
+        self.code_devs = None  # type: Optional[List[Tuple[str]]]
         try:
             self.info_init = sane.init()
         except _sane.error as err:
@@ -64,13 +164,11 @@ class Scan:
         arguments = self.parse_arguments(args)
         self.pfname_out = arguments.pfname_out
         self.as_png = True if arguments.png else False
-        self.dev = arguments.dev
-        self.pname_tmp = arguments.pname_tmp
-        self.pfnames_tmp = list()  # type: List[str]
+        self.hint_dev = arguments.dev
 
         if arguments.list:
             self.print("Searching for available scanner devices.")
-            self.get_known_devs()
+            self.get_code_devs()
             self.print(self)
 
     @staticmethod
@@ -83,13 +181,13 @@ class Scan:
         #  (sane_ver, ver_maj, ver_min, ver_patch).
         res = f"""Sane version: {'.'.join([str(j) for j in self.info_init])}"""
         res += "Known devices: "
-        if self.known_devs:
-            for kd in self.known_devs:
-                res += f"\n  {kd}"
+        if self.code_devs:
+            for kd in self.code_devs:
+                res += f"\n  {kd[2]}: {kd[0]}"
             res += "\n"
         else:
             res += "None\n"
-        res += f"""Target device: {self.dev}
+        res += f"""Requested device: {self.hint_dev}
 Actual Device: {self.device}"""
         return res
 
@@ -97,58 +195,43 @@ Actual Device: {self.device}"""
         """Local print function taking a callable. Intended for updating some statusbar in a GUI."""
         self.cb_print(msg)
 
-    def get_known_devs(self, *, force_recache=False) -> Optional[List[Tuple[str]]]:
+    def get_code_devs(self, *, force_recache=False) -> Optional[List[Tuple[str, str, str, str]]]:
         """:param force_recache: If True, and if there already is a non-None list of devices, return that directly.
             Else call sane.get_devices() in any case.
         :returns the List of Tuples of str that is returned by sane.get_devices(). Or None in case of failure."""
         if force_recache:
-            self.known_devs = None
-        if self.known_devs is None:
+            self.code_devs = None
+        if self.code_devs is None:
             try:
-                self.known_devs = sane.get_devices(localOnly=False)
+                self.code_devs = sane.get_devices(localOnly=False)
             except _sane.error as err:
                 self.print(f"Failure to obtain available devices: {err}")
                 return None
-        return self.known_devs
+        return self.code_devs
 
-    def connect(self, *, force_recache=False) -> int:
-        if force_recache:
-            self.device = None
-        if self.device:
-            return 0
-        self.get_known_devs()
-        if not self.known_devs:
-            self.print("No scanner devices could be identified.")
-            return 2
-        # [Note: The first entry is the device key.]
-        devs = [tpl[0] for tpl in self.known_devs]
+    @staticmethod
+    def convert_to_A4(im_input: Image) -> Optional[Image]:
+        """:param im_input: Input Image.
+        :returns a new image that has been upscaled to match A4 format.
+        Note: Google tells me, DIN A4 is 210 mm x 297 mm (8.27 in x 11.69 in)."""
+        # https://stackoverflow.com/questions/27271138/python-pil-pillow-pad-image-to-desired-size-eg-a4
+        res_xy_input = im_input.info['dpi']
+        dim_A4_px = int(res_xy_input[0] * 8.27), int(res_xy_input[0] * 11.69)
+        im_out = im_input.copy()
+        im_out.resize(dim_A4_px)
+        # a4im.paste(im, im.getbbox())
+        pass
 
-        # [Note: First try to get an exact match. If this fails, make do with a partial one. If that still fails, stop.]
-        dev_target = None  # type: Optional[str]
-        for d in devs:
-            if self.dev == d:
-                dev_target = d
-                break
-        if not dev_target:
-            for d in devs:
-                if str(self.dev).lower() in d.lower():
-                    dev_target = d
-                    break
-        if not dev_target:
-            self.print(f"Failure to find device '{self.dev}'. Options: {devs}")
-            return 3
-        self.print(f"Mapping requested dev code '{self.dev}' to device code '{dev_target}'")
-        self.dev = dev_target
-
-        try:
-            self.device = sane.SaneDev(self.dev)
-        except _sane.error as err:
-            self.print(f"Failure to connect to device '{self.dev}': {err}")
-            return 4
-
-        _log.info(f"Device object obtained: {self.device}")
-        self.print(f"Obtained device object for target device '{self.dev}'.")
-        return 0
+    @staticmethod
+    def images2file(pfname: str, images: List[Image], *, enforce_A4: bool = True) -> int:
+        if not images:
+            _log.warning(f"Failure to write target file '{pfname}': Given image list is empty.")
+            return 1
+        if enforce_A4:
+            images_A4 = list()  # type: List[Image]
+        # images[0].save(pfname, tp_output.to_format(), ... # Hier war ich.
+        #     pdf_path, "PDF" ,resolution=100.0, save_all=True, append_images=images[1:]   # )
+        pass
 
     def multiscan(self) -> int:
         """Perform an ADF (Automatic Document Feeder) multi-scan and write temporary png graphics."""
@@ -161,6 +244,8 @@ Actual Device: {self.device}"""
         iterator = self.device.multi_scan()
         fname_base = f'_multi_{self.get_time()}'
         c = 0
+
+        images = list()  # type: List[Image]
         for image in iterator:
             fname = Path(f"{c:04}_{fname_base}.png")
             pfname_tmp = str(Path(self.pname_tmp).joinpath(fname))
@@ -168,6 +253,9 @@ Actual Device: {self.device}"""
             self.pfnames_tmp.append(pfname_tmp)
             c = c + 1
         # TODO! Hier war ich! Sammle die Bilder ein und mache ein PDF/PNG daraus. Ueber PIL kann ich mir vielleicht sogar die Tmp-Files schenken.
+
+
+        self.device.close()
 
     def scan(self) -> int:
         if err := self.connect():
@@ -177,6 +265,9 @@ Actual Device: {self.device}"""
         image = self.device.scan()
         image.save(self.pfname_out)
         # TODO! Hier war ich. Das funktioniert bislang nur fuer PNG.
+
+
+        self.device.close()
 
     @staticmethod
     def parse_arguments(args: Optional[List[str]] = None) -> argparse.Namespace:
@@ -193,7 +284,6 @@ $ python3 {Path(sys.argv[0]).name}"""
         group = parser.add_mutually_exclusive_group()
         group.add_argument('--scan', action='store_true', help='Do a single flatbed scan.')
         group.add_argument('--multi', action='store_true', help='Do an Automatic Document Feeder (ADF) scan.')
-        parser.add_argument('--pname_tmp', type=str, help=f"Working directory for temporary files. Defaults to: {defaults['pname_tmp']}")
         parser.add_argument('pfname_out', type=str, help="Target pfname for scanner output.", default=defaults['pfname_out'])
         parsed = parser.parse_args(args)
         return parsed
@@ -201,5 +291,4 @@ $ python3 {Path(sys.argv[0]).name}"""
 
 if __name__ == '__main__':
     scanner = Scan()
-    scanner.connect()
     print("Done.")
