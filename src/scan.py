@@ -38,12 +38,8 @@ from PIL.Image import Image
 defaults = {
     # Target device identifier. Use --list to get options. 'dev' keys are the first entries in each device tuple.
     'dev': 'airscan:e0:EPSON ET-4850 Series',
-    # Target output pfname.
-    'pfname_out': 'scan.pdf',
-    # Mime type of output. So far, only png and pdf are supported.
-    'mime': 'pdf',
-    # Working directory for temporary files.
-    'pname_tmp': Path(sys.path[0]).joinpath('../tmp')  # << ../tmp from this script file's location.
+    # Dots per inch.
+    'dpi': 72
 }
 # < ------------------------------------------------------------------
 
@@ -52,6 +48,13 @@ logging.basicConfig(level=logging.INFO, format='[%(asctime)s] {%(filename)s:%(li
 _log = logging.getLogger()
 
 regexp_invalid_pfname_chars = r'[/\\?%*:|"<> !]'
+
+
+class E_ScanType(Enum):
+    ST_UNSPECIFIED = 0
+    ST_SINGLE_FLATBED = 1
+    ST_MULTI_FLATBED = 2
+    ST_MULTI_ADF = 3
 
 
 class E_OutputType(Enum):
@@ -91,13 +94,17 @@ class Device:
             return
         self.is_valid = True
 
+    def __str__(self):
+        validity = "Valid" if self.is_valid else "Invalid"
+        return f"{validity} device: {self.code_dev}"
+
     @property
     def dev(self) -> Optional[str]:
         """:returns this device code string for sane.open(..) or None if not available."""
         if self.code_dev is None:
             return None
         else:
-            return self.code_dev[0]
+            return self.code_dev
 
     @property
     def device(self) -> Optional[sane.SaneDev]:
@@ -131,11 +138,11 @@ class Device:
         Or None, in case of failure."""
         for code_dev in self.code_devs:
             code = code_dev[0].lower()
-            if hint_dev == code:
+            if hint_dev.lower() == code:
                 return code
         for code_dev in self.code_devs:
             code = str(code_dev[0]).lower()
-            if hint_dev in code:
+            if hint_dev.lower() in code:
                 return code
         return None
 
@@ -154,7 +161,7 @@ class Scan:
     """Main class for the command line script of this project."""
     def __init__(self, cb_print: Callable[[str], None] = print, args: Optional[List[str]] = None):
         self.cb_print = cb_print  # type: Callable[[str], None]
-        self.device = Optional[Device]
+        self.device = None  # type: Optional[Device]
         self.code_devs = None  # type: Optional[List[Tuple[str]]]
         try:
             self.info_init = sane.init()
@@ -163,13 +170,26 @@ class Scan:
             sys.exit(1)
         arguments = self.parse_arguments(args)
         self.pfname_out = arguments.pfname_out
-        self.as_png = True if arguments.png else False
+        self.format_output = E_OutputType.OT_PNG if arguments.png else E_OutputType.OT_PDF
+        self.enforce_A4 = arguments.a4
+        self.scan_tp = E_ScanType.ST_SINGLE_FLATBED
+        if arguments.multi:
+            self.scan_tp = E_ScanType.ST_MULTI_ADF
+        elif arguments.scans:
+            self.scan_tp = E_ScanType.ST_MULTI_FLATBED
         self.hint_dev = arguments.dev
-
         if arguments.list:
             self.print("Searching for available scanner devices.")
             self.get_code_devs()
             self.print(self)
+        self.images = list()  # type: List[Image]
+        if __name__ == '__main__':
+            self.scan()
+            if self.images:
+                self.print(f"Attempting to write {len(self.images)} images to file: '{self.pfname_out}'.")
+                self.images2file(self.pfname_out, self.images, tp=self.format_output, enforce_A4=self.enforce_A4)
+            else:
+                self.print(f"Failure to scan any images.")
 
     @staticmethod
     def get_time(frmt: str = "%y%m%d_%H%M%S", unix_time_s: Optional[int] = None) -> str:
@@ -195,6 +215,12 @@ Actual Device: {self.device}"""
         """Local print function taking a callable. Intended for updating some statusbar in a GUI."""
         self.cb_print(msg)
 
+    def ensure_device(self) -> Device:
+        """:return a Device object."""
+        if not self.device:
+            self.device = Device(self.hint_dev, self.get_code_devs())
+        return self.device
+
     def get_code_devs(self, *, force_recache=False) -> Optional[List[Tuple[str, str, str, str]]]:
         """:param force_recache: If True, and if there already is a non-None list of devices, return that directly.
             Else call sane.get_devices() in any case.
@@ -215,59 +241,80 @@ Actual Device: {self.device}"""
         :returns a new image that has been upscaled to match A4 format.
         Note: Google tells me, DIN A4 is 210 mm x 297 mm (8.27 in x 11.69 in)."""
         # https://stackoverflow.com/questions/27271138/python-pil-pillow-pad-image-to-desired-size-eg-a4
+        if 'dpi' not in im_input.info:
+            im_input.info['dpi'] = defaults['dpi'], defaults['dpi']
         res_xy_input = im_input.info['dpi']
-        dim_A4_px = int(res_xy_input[0] * 8.27), int(res_xy_input[0] * 11.69)
-        im_out = im_input.copy()
-        im_out.resize(dim_A4_px)
+        dim_A4_px = int(res_xy_input[0] * 8.27), int(res_xy_input[1] * 11.69)
+        im_out = im_input.copy().resize(dim_A4_px)
+        im_out = im_out.resize(dim_A4_px)
         # a4im.paste(im, im.getbbox())
-        pass
+        return im_out
 
     @staticmethod
-    def images2file(pfname: str, images: List[Image], *, enforce_A4: bool = True) -> int:
+    def images2file(pfname: str, images: List[Image], *, tp: E_OutputType = E_OutputType.OT_PDF, enforce_A4: bool = False) -> int:
         if not images:
             _log.warning(f"Failure to write target file '{pfname}': Given image list is empty.")
             return 1
         if enforce_A4:
             images_A4 = list()  # type: List[Image]
-        # images[0].save(pfname, tp_output.to_format(), ... # Hier war ich.
-        #     pdf_path, "PDF" ,resolution=100.0, save_all=True, append_images=images[1:]   # )
-        pass
+            for img in images:
+                images_A4.append(Scan.convert_to_A4(img))
+            images = images_A4
+        if len(images) > 1:
+            images[0].save(pfname, tp.to_format(), dpi=(defaults['dpi'],defaults['dpi']), save_all=True, append_images=images[1:])
+        else:
+            images[0].save(pfname, tp.to_format(), dpi=(defaults['dpi'],defaults['dpi']))
+        return 0
 
-    def multiscan(self) -> int:
+    def scan_adf(self, images: Optional[List[Image]] = None) -> List[Image]:
         """Perform an ADF (Automatic Document Feeder) multi-scan and write temporary png graphics."""
-        if err := self.connect():
-            return err
-        self.pfnames_tmp = list()
-        # https://github.com/python-pillow/Sane/issues/23
-        # [Note: This source setting to 'ADF' ensures that the Automatic Document Feeder will be used rather than the flatbed scanner.]
-        self.device.source = 'ADF'
-        iterator = self.device.multi_scan()
-        fname_base = f'_multi_{self.get_time()}'
-        c = 0
-
+        if images is None:
+            images = self.images
+        self.get_code_devs()
+        device = self.ensure_device()  # type: Device
+        device.create_device()
+        if not device.device:
+            _log.warning(f"Failure to create device: {device.device}")
+            return images
+        device.device.source = "ADF"
+        try:
+            iterator = self.device.device.multi_scan()
+        except Exception as err:
+            self.print(f"Failure to perform multi-scan: {err}")
+            return images
         images = list()  # type: List[Image]
         for image in iterator:
-            fname = Path(f"{c:04}_{fname_base}.png")
-            pfname_tmp = str(Path(self.pname_tmp).joinpath(fname))
-            image.save(pfname_tmp)
-            self.pfnames_tmp.append(pfname_tmp)
-            c = c + 1
-        # TODO! Hier war ich! Sammle die Bilder ein und mache ein PDF/PNG daraus. Ueber PIL kann ich mir vielleicht sogar die Tmp-Files schenken.
+            images.append(image.copy())
+        device.close_device()
+        return images
 
+    def scan_flatbed(self, images: Optional[List[Image]] = None) -> List[Image]:
+        if images is None:
+            images = self.images
+        self.get_code_devs()
+        device = self.ensure_device()  # type: Device
+        device.create_device()
+        if not device.device:
+            _log.warning(f"Failure to create device: {device.device}")
+            return images
+        device.device.source = "Flatbed"
+        try:
+            image = device.device.scan()
+            images.append(image)
+        except _sane.error as err:
+            print(f"Failure to scan from device '{device}': {err}")
+        device.close_device()
+        return images
 
-        self.device.close()
-
-    def scan(self) -> int:
-        if err := self.connect():
-            return err
-        self.pfnames_tmp = list()
-        self.device.source = 'Flatbed'
-        image = self.device.scan()
-        image.save(self.pfname_out)
-        # TODO! Hier war ich. Das funktioniert bislang nur fuer PNG.
-
-
-        self.device.close()
+    def scan(self, *, clear_images: bool = False):
+        if clear_images:
+            self.images.clear()
+        if self.scan_tp in (E_ScanType.ST_SINGLE_FLATBED, E_ScanType.ST_MULTI_FLATBED):
+            self.scan_flatbed()
+        elif self.scan_tp == E_ScanType.ST_MULTI_ADF:
+            self.scan_adf()
+        else:
+            _log.warning(f"Unsupported scan type '{self.scan_tp.name}' encountered.")
 
     @staticmethod
     def parse_arguments(args: Optional[List[str]] = None) -> argparse.Namespace:
@@ -281,10 +328,12 @@ $ python3 {Path(sys.argv[0]).name}"""
         parser.add_argument('--dev', type=str, help="At least part of a device name. From known devices will use the "+\
                             f"first one that fits. If none is given, default '{defaults['dev']}' will be used.", default=defaults['dev'])
         parser.add_argument('--png', action='store_true', help='Produce a set of png graphics rather than a comprehensive pdf file.')
+        parser.add_argument('--a4', action='store_true', help="Enforce A4 format.")
         group = parser.add_mutually_exclusive_group()
         group.add_argument('--scan', action='store_true', help='Do a single flatbed scan.')
+        group.add_argument('--scans', action='store_true', help='Do multiple single flatbed scans.')
         group.add_argument('--multi', action='store_true', help='Do an Automatic Document Feeder (ADF) scan.')
-        parser.add_argument('pfname_out', type=str, help="Target pfname for scanner output.", default=defaults['pfname_out'])
+        parser.add_argument('pfname_out', type=str, help="Target pfname for scanner output.")
         parsed = parser.parse_args(args)
         return parsed
 
