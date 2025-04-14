@@ -38,7 +38,6 @@ pfname_png_single = Path(pfname_script.parent, 'icons/single_scan.png')
 pfname_png_multi = Path(pfname_script.parent, 'icons/multi_scan.png')
 pfname_png_disk = Path(pfname_script.parent, 'icons/disk.png')
 
-
 class TextWindow:
     """A glorified text box."""
     def __init__(self, parent: tk.Tk, msg: str, img: Optional[tk.PhotoImage] = None, dim=(80,40)):
@@ -98,11 +97,12 @@ class ScanGui:
         self.thread_init = None  # type: Optional[Thread]
         if self.root:
             self.scan = None  # type: Optional[Scan]
-            self.thread_init = self.threaded_initialize_Scan_object()
+            self.threaded_initialize_Scan_object()
             def t_wait_and_bind(ui):
                 time.sleep(0.5)
-                #_log.info("Initializing root bind.")
+                _log.info("Initializing root bind.")
                 self.root.bind_all('<<init_complete>>', self.handler_init)
+                self.root.bind_all('<<scan_complete>>', self.handler_init)
             self.call_threaded(t_wait_and_bind, (self,))
             self.root.mainloop()
         else:
@@ -137,7 +137,6 @@ class ScanGui:
 
     def cb_init(self):
         self.root.event_generate("<<init_complete>>", when='tail') #, state=123)
-        self.root.event_generate("<<scan_complete>>", when='tail')
 
     @staticmethod
     def get_time(frmt: str = "%y%m%d_%H%M%S", unix_time_s: Optional[int] = None) -> str:
@@ -151,12 +150,12 @@ class ScanGui:
         else:
             print(msg)
 
-    def threaded_initialize_Scan_object(self) -> Thread:
+    def threaded_initialize_Scan_object(self):
         """Start a new thread for filling self.scan."""
         def t_init_scan(ui):
             ui.scan = Scan(cb_print=self.print, cb_init=self.cb_init)
-        thread_init = self.call_threaded(t_init_scan, (self,))
-        return thread_init
+            pass
+        self.thread_init = self.call_threaded(t_init_scan, (self,))
 
     def mb_about(self):
         msg = """This tkinter GUI is intended to provide a simple frontend to the otherwise useful
@@ -182,7 +181,7 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
             return 1
         elif not self.scan:
             self.print("Scan object not available. Attempting to rebuild. Please wait.")
-            self.thread_init = self.threaded_initialize_Scan_object()
+            self.threaded_initialize_Scan_object()
             return 2
         return 0
 
