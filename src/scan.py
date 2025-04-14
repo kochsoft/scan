@@ -36,7 +36,7 @@ from PIL.Image import Image
 # > config.sys. ------------------------------------------------------
 # Default values for some config parameters. Adjust to your own needs.
 defaults = {
-    # Target device identifier. Use --list to get options. 'dev' keys are the first entries in each device tuple.
+    # Target device identifier. Use --list to get options. 'dev' keys are the first entries in each device tuple. E.g., 'v4l:/dev/video2'.
     'code': 'airscan:e0:EPSON ET-4850 Series',
     # Dots per inch.
     'dpi': 72,
@@ -111,13 +111,13 @@ class Scan:
         return res
 
     @staticmethod
-    def available_codes2str() -> str:
+    def available_codes2str(line_prefix: str = '') -> str:
         """:returns human-readable string representation of currently available device code tuples."""
         if not Scan.data_devices_info:
-            return '<empty>'
+            return f'{line_prefix}<empty>'
         res = ""
         for codes in Scan.data_devices_info:
-            res += f"{codes[2]}: {codes[0]}\n"
+            res += f"{line_prefix}{codes[2]}: {codes[0]}\n"
         return res[:-1]
 
     @staticmethod
@@ -177,7 +177,7 @@ class Scan:
     def __str__(self) -> str:
         #  (sane_ver, ver_maj, ver_min, ver_patch).
         res = f"Sane version: {'.'.join([str(j) for j in Scan.data_init])}\n"
-        res += f"Known devices: \n{Scan.available_codes2str()}"
+        res += f"Known devices: \n{Scan.available_codes2str('  ')}"
         res += f"Requested device: {self.code}"
         return res
 

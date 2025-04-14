@@ -96,29 +96,43 @@ class ScanGui:
 
         if self.root:
             self.scan = None  # type: Optional[Scan]
-            def t_init_scan():
-                self.scan = Scan(cb_print=self.print, cb_init=self.cb_init)
-            t = threading.Thread(target=t_init_scan)
-            t.daemon = True
-            t.start()
+            self.threaded_initialize_Scan_object()
+            def t_wait_and_init(ui):
+                time.sleep(0.5)
+                _log.info("Initializing root bind.")
+                self.root.bind_all('<<init_complete>>', self.handler_init)
+            self.call_threaded(t_wait_and_init, (self,))
             self.root.mainloop()
         else:
             _log.warning("No GUI available. Consider using the command line script, 'scan.py', directly.")
             sys.exit(1)
 
-    def handler_init(self, event: tk.Event):
-        self.print("Hihi!")
-
-    def cb_init(self):
-        self.root.event_generate("<<event1>>", when='tail', state=123)
-        self.print("did it")
-        #self.print(f"Initialization complete. {len(Scan.data_devices_info)} devices have been identified.")
-        # TODO! Add more sensible stuff here!
-
-    def call_threaded(self, fct_thd, cb_thd, args4thd: Optional[tuple]=None):
-        t = threading.Thread(target=fct_thd, args=args4thd)
+    @staticmethod
+    def call_threaded(fct_thd, args4thd: Optional[tuple]=None):
+        if args4thd:
+            t = threading.Thread(target=fct_thd, args=args4thd)
+        else:
+            t = threading.Thread(target=fct_thd)
         t.daemon = True
         t.start()
+
+    def handler_init(self, event: tk.Event):
+        self.print(f"Initialization complete. {len(Scan.data_devices_info)} devices have been identified.\n{self.scan}")
+        code = self.scan.code
+        index = 0
+        codes = self.scan.get_available_codes()
+        for elt in codes:
+            if elt == code:
+                break
+            index = index + 1
+        self.combo_device['values'] = tuple(codes)
+        if index < len(codes):
+            self.combo_device.current(index)
+        elif len(codes):
+            self.combo_device.current(0)
+
+    def cb_init(self):
+        self.root.event_generate("<<init_complete>>", when='tail', state=123)
 
     @staticmethod
     def get_time(frmt: str = "%y%m%d_%H%M%S", unix_time_s: Optional[int] = None) -> str:
@@ -132,7 +146,14 @@ class ScanGui:
         else:
             print(msg)
 
+    def threaded_initialize_Scan_object(self):
+        """Start a new thread for filling self.scan."""
+        def t_init_scan(ui):
+            ui.scan = Scan(cb_print=self.print, cb_init=self.cb_init)
+        self.call_threaded(t_init_scan, (self,))
+
     def mb_about(self):
+        #self.threaded_initialize_Scan_object()
         msg = """This tkinter GUI is intended to provide a simple frontend to the otherwise useful
 Sane scanner software. Focussing on the bare-bone most essential function:
 Scanning!
@@ -181,7 +202,7 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.frame.pack(fill=tk.BOTH, expand=True)
         # < ----------------------------------------------------------
         # > Event handlers for Scan threads. -------------------------
-        self.root.bind_all('<<Event1>>', self.handler_init)
+        #self.root.bind_all('<<init_complete>>', self.handler_init)
         # < ----------------------------------------------------------
         # > Menu. ----------------------------------------------------
         self.menu = tk.Menu(self.root)
@@ -239,5 +260,9 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         # < ----------------------------------------------------------
 
 if __name__ == '__main__':
-    ScanGui()
+    if print(tk.Tcl().eval('puts $tcl_platform(threaded)')) == '0':
+        _log.warning("Local TCL installation (a dependency of tkinter, the GUI package) is non-threaded. However, "+
+                     "'threaded' is needed for this UI. The command line tool 'scan.py' should still work though.")
+    else:
+        ScanGui()
     print("Done.")
