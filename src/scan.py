@@ -29,6 +29,7 @@ from enum import Enum
 from pathlib import Path
 from argparse import RawTextHelpFormatter
 from typing import Optional, List, Dict, Tuple, Callable
+from math import log, floor
 import sane
 import _sane
 from PIL.Image import Image
@@ -211,30 +212,47 @@ class Scan:
                 images_A4.append(Scan.convert_to_A4(img))
             images = images_A4
         if len(images) > 1:
-            images[0].save(pfname, tp.to_format(), dpi=(defaults['dpi'],defaults['dpi']), save_all=True, append_images=images[1:])
+            if tp == E_OutputType.OT_PDF:
+                images[0].save(pfname, tp.to_format(), dpi=(defaults['dpi'],defaults['dpi']), save_all=True, append_images=images[1:])
+            else:
+                # [Note: PNG does not support multi-page documents.]
+                n_digits = floor(log(len(images),10)) + 1
+                for j in range(len(images)):
+                    pname = Path(pfname).parent
+                    fname = Path(pfname).name
+                    pfn = Path(pname).joinpath(f'{j:0{n_digits}d}_{fname}')
+                    images[j].save(pfn, tp.to_format(), dpi=(defaults['dpi'], defaults['dpi']))
         else:
             images[0].save(pfname, tp.to_format(), dpi=(defaults['dpi'],defaults['dpi']))
         return 0
 
-    def scan_adf(self, images: Optional[List[Image]] = None) -> List[Image]:
+    def scan_adf(self, code: Optional[str] = None, images: Optional[List[Image]] = None, *, cb_done: Optional[callable] = None) -> List[Image]:
         """Perform an ADF (Automatic Document Feeder) multi-scan and write temporary png graphics."""
+        if code is None:
+            code = self.code
+        device = Scan.data_devices[code] if code in Scan.data_devices else None  # type: Optional[sane.SaneDev]
         if images is None:
             images = self.images
-        device = self.device
         if not device:
-            _log.warning(f"Device '{self.code}' not available.")
+            self.print(f"Device '{code}' not available.")
             return images
         device.source = "ADF"
         for image in device.multi_scan():
             images.append(image.copy())
+        device.close()
+        del Scan.data_devices[code]
+        if cb_done:
+            cb_done()
         return images
 
-    def scan_flatbed(self, images: Optional[List[Image]] = None) -> List[Image]:
+    def scan_flatbed(self, code: Optional[str] = None, images: Optional[List[Image]] = None, *, cb_done: Optional[callable] = None) -> List[Image]:
+        if code is None:
+            code = self.code
+        device = Scan.data_devices[code] if code in Scan.data_devices else None  # type: Optional[sane.SaneDev]
         if images is None:
             images = self.images
-        device = self.device
         if not device:
-            _log.warning(f"Device '{self.code}' not available.")
+            self.print(f"Device '{code}' not available.")
             return images
         device.source = "Flatbed"
         try:
@@ -242,6 +260,10 @@ class Scan:
             images.append(image)
         except _sane.error as err:
             print(f"Failure to scan from device '{device}': {err}")
+        device.close()
+        del Scan.data_devices[code]
+        if cb_done:
+            cb_done()
         return images
 
     def scan(self, scan_tp: E_ScanType, *, clear_images: bool = False):

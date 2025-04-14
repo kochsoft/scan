@@ -16,7 +16,7 @@ import os
 import sys
 import time
 import logging
-import threading
+from threading import Thread
 import tkinter as tk
 import tkinter.filedialog
 from pathlib import Path
@@ -78,7 +78,9 @@ class ScanGui:
 
         self.var_combo_device = None  # type: Optional[tk.StringVar]
         self.combo_device = None  # type: Optional[ttk.Combobox]
-        self.check_png = None  # type: Optional[tk.Checkbutton]
+        self.var_check_seascape = None  # type: Optional[tk.IntVar]
+        self.var_check_A4 = None  # type: Optional[tk.IntVar]
+        self.check_seascape = None  # type: Optional[tk.Checkbutton]
         self.check_A4 = None  # type: Optional[tk.Checkbutton]
 
         self.ta_log = None  # type: Optional[tk.Text]
@@ -93,30 +95,32 @@ class ScanGui:
         self.menu = None  # type: Optional[tk.Menu]
 
         self.build_gui()
-
+        self.thread_init = None  # type: Optional[Thread]
         if self.root:
             self.scan = None  # type: Optional[Scan]
-            self.threaded_initialize_Scan_object()
-            def t_wait_and_init(ui):
+            self.thread_init = self.threaded_initialize_Scan_object()
+            def t_wait_and_bind(ui):
                 time.sleep(0.5)
-                _log.info("Initializing root bind.")
+                #_log.info("Initializing root bind.")
                 self.root.bind_all('<<init_complete>>', self.handler_init)
-            self.call_threaded(t_wait_and_init, (self,))
+            self.call_threaded(t_wait_and_bind, (self,))
             self.root.mainloop()
         else:
             _log.warning("No GUI available. Consider using the command line script, 'scan.py', directly.")
             sys.exit(1)
 
     @staticmethod
-    def call_threaded(fct_thd, args4thd: Optional[tuple]=None):
+    def call_threaded(fct_thd, args4thd: Optional[tuple]=None) -> Thread:
         if args4thd:
-            t = threading.Thread(target=fct_thd, args=args4thd)
+            t = Thread(target=fct_thd, args=args4thd)
         else:
-            t = threading.Thread(target=fct_thd)
+            t = Thread(target=fct_thd)
         t.daemon = True
         t.start()
+        return t
 
     def handler_init(self, event: tk.Event):
+        """Initialization handler."""
         self.print(f"Initialization complete. {len(Scan.data_devices_info)} devices have been identified.\n{self.scan}")
         code = self.scan.code
         index = 0
@@ -132,7 +136,8 @@ class ScanGui:
             self.combo_device.current(0)
 
     def cb_init(self):
-        self.root.event_generate("<<init_complete>>", when='tail', state=123)
+        self.root.event_generate("<<init_complete>>", when='tail') #, state=123)
+        self.root.event_generate("<<scan_complete>>", when='tail')
 
     @staticmethod
     def get_time(frmt: str = "%y%m%d_%H%M%S", unix_time_s: Optional[int] = None) -> str:
@@ -146,14 +151,14 @@ class ScanGui:
         else:
             print(msg)
 
-    def threaded_initialize_Scan_object(self):
+    def threaded_initialize_Scan_object(self) -> Thread:
         """Start a new thread for filling self.scan."""
         def t_init_scan(ui):
             ui.scan = Scan(cb_print=self.print, cb_init=self.cb_init)
-        self.call_threaded(t_init_scan, (self,))
+        thread_init = self.call_threaded(t_init_scan, (self,))
+        return thread_init
 
     def mb_about(self):
-        #self.threaded_initialize_Scan_object()
         msg = """This tkinter GUI is intended to provide a simple frontend to the otherwise useful
 Sane scanner software. Focussing on the bare-bone most essential function:
 Scanning!
@@ -169,20 +174,57 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
 """
         TextWindow(self.root, msg, self.icon_single, (70,14))
 
+    def verify_scan_object(self) -> int:
+        """Verifies if a scan object is available.
+        :returns 0 if and only if a scan object is available."""
+        if self.thread_init and self.thread_init.is_alive():
+            self.print("Scanner initialization still running. Please wait.")
+            return 1
+        elif not self.scan:
+            self.print("Scan object not available. Attempting to rebuild. Please wait.")
+            self.thread_init = self.threaded_initialize_Scan_object()
+            return 2
+        return 0
+
     def set_png(self, val: bool):
         pass
 
     def set_force_A4(self, val: bool):
         pass
 
+    def scan_now(self, tp: E_ScanType):
+        """Initialize flatbed or ADF (Automatic Document Feeder) scan."""
+        if self.verify_scan_object():
+            return
+        code = self.var_combo_device.get()
+        if code not in Scan.data_devices:
+            Scan.init_device(code)
+        if tp == E_ScanType.ST_MULTI_ADF:
+            self.scan.scan_adf(code=code)
+        else:
+            self.scan.scan_flatbed(code=code)
+
     def scan_single(self):
-        pass
+        """Initialize flatbed-Scan."""
+        self.scan_now(E_ScanType.ST_SINGLE_FLATBED)
 
     def scan_multi(self):
-        pass
+        """Initialize ADF (Automatic Document Feeder) scan."""
+        self.scan_now(E_ScanType.ST_MULTI_FLATBED)
 
     def save(self):
-        pass
+        if self.verify_scan_object():
+            return
+        if not self.scan.images:
+            self.print("No scanned images available for saving.")
+            return
+        force_A4 = bool(self.var_check_A4.get())
+        files = [('PDF', '*.pdf'), ('png', '*.png')]
+        pfname_out = tk.filedialog.asksaveasfilename(filetypes=files, title=f'Save {len(self.scan.images)} images as document(s)')
+        tp = E_OutputType.OT_PNG if pfname_out.lower().endswith('png') else E_OutputType.OT_PDF
+        success = 'Failure to save' if self.scan.save_images(pfname_out, self.scan.images, tp=tp, enforce_A4=force_A4) else 'Successfully saved '
+        self.print(f"{success} {len(self.scan.images)} images, using base pfname '{pfname_out}'.")
+        self.scan.images.clear()
 
     def build_gui(self):
         # > Main Window. ---------------------------------------------
@@ -227,13 +269,13 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.combo_device.current(0)
         Hovertip(self.combo_device, 'Once initialized, select the scanning device intended for usage.')
 
-        var_png = tk.IntVar()
-        self.check_png = tk.Checkbutton(self.frame, anchor=tk.W, text='as png', variable=var_png, command=lambda: self.set_png(bool(var_png.get())))
-        self.check_png.grid(row=1, column=0, sticky='ew')
-        Hovertip(self.check_png, 'Normally a PDF will be saved. Unless this is checked for PNG output.')
+        self.var_check_seascape = tk.IntVar()
+        self.check_seascape = tk.Checkbutton(self.frame, anchor=tk.W, text='Seascape', variable=self.var_check_seascape, command=lambda: self.set_png(bool(self.var_check_seascape.get())))
+        self.check_seascape.grid(row=1, column=0, sticky='ew')
+        Hovertip(self.check_seascape, 'NOT IMPLEMENTED. Normally files will be saved landscape (long edge is vertical). Check this to get seascape.')
 
-        var_A4 = tk.IntVar()
-        self.check_A4 = tk.Checkbutton(self.frame, anchor=tk.W, text='force A4', variable=var_A4, command=lambda: self.set_force_A4(bool(var_A4.get())))
+        self.var_check_A4 = tk.IntVar()
+        self.check_A4 = tk.Checkbutton(self.frame, anchor=tk.W, text='Force A4', variable=self.var_check_A4, command=lambda: self.set_force_A4(bool(self.var_check_A4.get())))
         self.check_A4.grid(row=1, column=1, sticky='ew')
         Hovertip(self.check_A4, 'If checked A4 image size will be enforced. This usually is unnecessary.')
 
