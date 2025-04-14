@@ -6,22 +6,20 @@ Markus-Hermann Koch, https://github.com/kochsoft, 13th April 2025.
 
 Literature:
 ===========
-* Background threads talking to tkinter thread via events.
+[1] Background threads talking to tkinter thread via events.
     https://stackoverflow.com/questions/64287940/update-tkinter-gui-from-a-separate-thread-running-a-command
-* About threads and passing arguments.
+[2] About threads and passing arguments.
     https://nitratine.net/blog/post/python-threading-basics/
+[3] Displaying a PIL image in a label.
+    https://www.activestate.com/resources/quick-reads/how-to-add-images-in-tkinter/
 """
 
-import os
-import sys
+import re
 import time
-import logging
-from threading import Thread
 import tkinter as tk
 import tkinter.filedialog
-from pathlib import Path
 from tkinter import ttk
-from tkinter.filedialog import asksaveasfilename
+from threading import Thread
 from idlelib.tooltip import Hovertip
 
 from scan import *
@@ -38,6 +36,7 @@ pfname_png_single = Path(pfname_script.parent, 'icons/single_scan.png')
 pfname_png_multi = Path(pfname_script.parent, 'icons/multi_scan.png')
 pfname_png_disk = Path(pfname_script.parent, 'icons/disk.png')
 pfname_png_stop = Path(pfname_script.parent, 'icons/stop.png')
+pfname_png_delete = Path(pfname_script.parent, 'icons/delete.png')
 
 class TextWindow:
     """A glorified text box."""
@@ -69,13 +68,16 @@ class ScanGui:
         self.padding_columns = 10
 
         self.root = None  # type: Optional[tk.Tk]
-        self.frame = None  # type: Optional[tk.Frame]
+        self.tabControl =  None  # type: Optional[ttk.Notebook]
+        self.tab1 = None  # type: Optional[tk.Frame]
+        self.tab2 = None  # type: Optional[tk.Frame]
 
         self.icon_logo = None  # type: Optional[tk.PhotoImage]
         self.icon_single = None  # type: Optional[tk.PhotoImage]
         self.icon_multi = None  # type: Optional[tk.PhotoImage]
         self.icon_disk = None  # type: Optional[tk.PhotoImage]
         self.icon_stop = None  # type: Optional[tk.PhotoImage]
+        self.icon_delete = None  # type: Optional[tk.PhotoImage]
 
         self.var_combo_device = None  # type: Optional[tk.StringVar]
         self.combo_device = None  # type: Optional[ttk.Combobox]
@@ -88,10 +90,13 @@ class ScanGui:
 
         self.button_scan_adf = None  # type: Optional[tk.Button]
         self.button_scan_fb = None  # type: Optional[tk.Button]
-
+        self.button_save = None  # type: Optional[tk.Button]
         self.label_pages = None  # type: Optional[tk.Label]
 
-        self.button_save = None  # type: Optional[tk.Button]
+        self.label_preview = None  # type: Optional[tk.Label]
+        self.var_combo_index_preview = None  # type: Optional[tk.StringVar]
+        self.combo_index_preview = None  # type: Optional[ttk.Combobox]
+        self.button_delete_image = None  # type: Optional[tk.Button]
 
         self.menu = None  # type: Optional[tk.Menu]
 
@@ -140,7 +145,8 @@ class ScanGui:
 
     def handler_init(self, event: tk.Event):
         """Initialization handler."""
-        self.print(f"Initialization complete. {len(Scan.data_devices_info)} devices have been identified.\n{self.scan}")
+        text_scan = f"\n{self.scan}" if self.scan else ''
+        self.print(f"Initialization complete. {len(Scan.data_devices_info)} devices have been identified.{text_scan}")
         self.enable_gui(True)
         code = self.scan.code
         index = 0
@@ -155,10 +161,29 @@ class ScanGui:
         elif len(codes):
             self.combo_device.current(0)
 
+    @property
+    def label_pages_number(self) -> int:
+        """Getter for the number that is displayed in self.label_pages_number."""
+        if not self.label_pages:
+            return 0
+        text = self.label_pages.cget('text')
+        numbers = re.findall('([0-9]+)', text)
+        return int(numbers[-1]) if numbers else 0
+
+    @label_pages_number.setter
+    def label_pages_number(self, val: int):
+        """Setter for the number that is displayed in self.label_pages_number."""
+        if val < 0:
+            val = 0
+        if self.label_pages:
+            text = re.sub('[0-9]+', str(val), str(self.label_pages.cget('text')))
+            self.label_pages.config(text=text)
+
     def handler_scan(self, event: tk.Event):
         self.enable_gui(True)
         self.enable_stop(to_stop=False, enable=True, single_scan=True)
         self.enable_stop(to_stop=False, enable=True, single_scan=False)
+        self.label_pages_number = len(self.scan.images)
 
     def cb_init(self):
         self.root.event_generate("<<init_complete>>", when='tail') #, state=123)
@@ -173,8 +198,11 @@ class ScanGui:
         return time.strftime(frmt, time.localtime(unix_time_s))
 
     def print(self, msg: str):
+        """Prepends a log message to the content of the self.ta_log logging textarea."""
+        if not msg:
+            return
         if self.ta_log:
-            self.ta_log.insert(1.0, f"{self.get_time('%H:%M:%S')}: {msg}\n")
+            self.ta_log.insert(1.0, f"{self.get_time('%H:%M:%S')}: {msg}\n\n")
         else:
             print(msg)
 
@@ -260,6 +288,11 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         success = 'Failure to save' if self.scan.save_images(pfname_out, self.scan.images, tp=tp, enforce_A4=force_A4, seascape=seascape) else 'Successfully saved '
         self.print(f"{success} {len(self.scan.images)} images, using base pfname '{pfname_out}'.")
         self.scan.images.clear()
+        self.label_pages_number = 0
+
+    def delete_image(self):
+        """TODO! Implement me to delete the image that is currently shown in the preview combobox."""
+        pass
 
     def enable_stop(self, *, to_stop: bool, enable: bool, single_scan: bool):
         target = self.button_scan_fb if single_scan else self.button_scan_adf  # type: tk.Button
@@ -291,13 +324,8 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.icon_multi = tk.PhotoImage(file=str(pfname_png_multi))
         self.icon_disk = tk.PhotoImage(file=str(pfname_png_disk))
         self.icon_stop = tk.PhotoImage(file=str(pfname_png_stop))
+        self.icon_delete = tk.PhotoImage(file=str(pfname_png_delete))
         self.root.iconphoto(True, self.icon_single)
-
-        self.frame = tk.Frame(self.root)  #, bg='orange')
-        self.frame.columnconfigure(0, weight=1)
-        self.frame.columnconfigure(1, weight=1)
-        self.frame.rowconfigure(2, weight=1)
-        self.frame.pack(fill=tk.BOTH, expand=True)
         # < ----------------------------------------------------------
         # > Menu. ----------------------------------------------------
         self.menu = tk.Menu(self.root)
@@ -311,11 +339,32 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.menu.add_cascade(label='Help', menu=menu_help)
         menu_help.add_command(label='About ...', command=self.mb_about)
         # < ----------------------------------------------------------
-        # > Control elements. ----------------------------------------
+        # > Tabs. ----------------------------------------------------
+        self.tabControl = ttk.Notebook(self.root)
+
+        self.tab1 = ttk.Frame(self.tabControl)
+        self.tab1.columnconfigure(0, weight=1)
+        self.tab1.columnconfigure(1, weight=1)
+        # [Note: Vertical expansion shall be done around row 2, where the log textarea is.]
+        self.tab1.rowconfigure(2, weight=1)
+        self.tab1.pack(fill=tk.BOTH, expand=True)
+
+        self.tab2 = ttk.Frame(self.tabControl)
+        self.tab2.columnconfigure(0, weight=1)
+        self.tab2.columnconfigure(1, weight=1)
+        # [Note: Vertical expansion shall be done around row 0, where the large preview widget is.]
+        self.tab2.rowconfigure(0, weight=1)
+        self.tab2.pack(fill=tk.BOTH, expand=True)
+
+        self.tabControl.add(self.tab1, text="Main Functions")
+        self.tabControl.add(self.tab2, text="Previews")
+        self.tabControl.pack(expand=1, fill=tk.BOTH)
+        # < ----------------------------------------------------------
+        # > Control elements tab1. -----------------------------------
         # https://www.pythontutorial.net/tkinter/tkinter-combobox/
         # [Note: The var for the combobox needs to be a persistent variable.]
         self.var_combo_device = tk.StringVar()
-        self.combo_device = ttk.Combobox(self.frame, textvariable=self.var_combo_device, width=self.width_column)
+        self.combo_device = ttk.Combobox(self.tab1, textvariable=self.var_combo_device, width=self.width_column)
         self.combo_device.grid(row=0,column=0, columnspan=2, sticky='ew')
         self.combo_device['values'] = '<empty>',
         self.combo_device['state'] = 'readonly'
@@ -323,35 +372,50 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         Hovertip(self.combo_device, 'Once initialized, select the scanning device intended for usage.')
 
         self.var_check_seascape = tk.IntVar()
-        self.check_seascape = tk.Checkbutton(self.frame, anchor=tk.W, text='Seascape', variable=self.var_check_seascape, command=lambda: self.set_png(bool(self.var_check_seascape.get())))
+        self.check_seascape = tk.Checkbutton(self.tab1, anchor=tk.W, text='Seascape', variable=self.var_check_seascape, command=lambda: self.set_png(bool(self.var_check_seascape.get())))
         self.check_seascape.grid(row=1, column=0, sticky='ew')
         Hovertip(self.check_seascape, 'Normally files will be saved landscape (long edge is vertical). Check this to get seascape.')
 
         self.var_check_A4 = tk.IntVar()
-        self.check_A4 = tk.Checkbutton(self.frame, anchor=tk.W, text='Force A4', variable=self.var_check_A4, command=lambda: self.set_force_A4(bool(self.var_check_A4.get())))
+        self.check_A4 = tk.Checkbutton(self.tab1, anchor=tk.W, text='Force A4', variable=self.var_check_A4, command=lambda: self.set_force_A4(bool(self.var_check_A4.get())))
         self.check_A4.grid(row=1, column=1, sticky='ew')
         Hovertip(self.check_A4, 'If checked A4 image size will be enforced. This usually is unnecessary.')
 
-        self.ta_log = tk.Text(self.frame, height=10, width=self.width_column, state='normal', wrap=tk.WORD)
+        self.ta_log = tk.Text(self.tab1, height=10, width=self.width_column, state='normal', wrap=tk.WORD)
         self.ta_log.grid(row=2, column=0, columnspan=2, sticky='ewns')
-        #self.ta_log.insert('1.0', 'Initializing. Please wait.')
         self.print('Initializing. Please wait.')
 
-        self.button_scan_fb = tk.Button(self.frame, image=self.icon_single, command=self.scan_single)
+        self.button_scan_fb = tk.Button(self.tab1, image=self.icon_single, command=self.scan_single)
         self.button_scan_fb.grid(row=3, column=0, sticky='ew')
         Hovertip(self.button_scan_fb, 'Initialize a single flatbed scan.')
 
-        self.button_scan_adf = tk.Button(self.frame, image=self.icon_multi, command=self.scan_multi)
+        self.button_scan_adf = tk.Button(self.tab1, image=self.icon_multi, command=self.scan_multi)
         self.button_scan_adf.grid(row=3, column=1, sticky='ew')
         Hovertip(self.button_scan_adf, 'Initialize a potential multi-scan from the automatic document feed.')
 
-        self.button_save = tk.Button(self.frame, image=self.icon_disk, command=self.save)
+        self.button_save = tk.Button(self.tab1, image=self.icon_disk, command=self.save)
         self.button_save.grid(row=4, column=0, columnspan=2, sticky='ew')
         Hovertip(self.button_save, 'Save the current images list to disk.')
 
-        self.label_pages = tk.Label(self.frame, text='Current number of pages: 0', relief=tk.RIDGE, anchor=tk.W)
+        self.label_pages = tk.Label(self.tab1, text='Current number of pages: 0', relief=tk.RIDGE, anchor=tk.W)
         self.label_pages.grid(row=5, column=0, columnspan=2, sticky='ew')
         Hovertip(self.label_pages, 'If a document were to be saved now it should receive this many pages.')
+        # < ----------------------------------------------------------
+        # > Control elements tab2. -----------------------------------
+        self.label_preview = tk.Label(self.tab2, text='Implement me! See Literature [3].', relief=tk.RIDGE, anchor=tk.W)
+        self.label_preview.grid(row=0, column=0, columnspan=2, sticky='nsew')
+
+        self.var_combo_index_preview = tk.StringVar()
+        self.combo_index_preview = ttk.Combobox(self.tab2, textvariable=self.var_combo_index_preview)
+        self.combo_index_preview.grid(row=1,column=0, sticky='ewn')
+        self.combo_index_preview['values'] = '<empty>',
+        self.combo_index_preview['state'] = 'readonly'
+        self.combo_index_preview.current(0)
+        Hovertip(self.combo_index_preview, 'Select the image index to review the respective scan.')
+
+        self.button_delete_image = tk.Button(self.tab2, image=self.icon_delete, command=self.delete_image)
+        self.button_delete_image.grid(row=1, column=1, sticky='ew')
+        Hovertip(self.button_delete_image, 'Delete the currently visible image.')
         # < ----------------------------------------------------------
 
 if __name__ == '__main__':
