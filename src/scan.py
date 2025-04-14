@@ -50,6 +50,9 @@ _log = logging.getLogger()
 
 regexp_invalid_pfname_chars = r'[/\\?%*:|"<> !]'
 
+def cb_dummy():
+    """Empty function, when a callback should do nothing."""
+    pass
 
 class E_ScanType(Enum):
     ST_UNSPECIFIED = 0
@@ -127,7 +130,7 @@ class Scan:
             Scan.data_devices[code].close()
         try:
             Scan.data_devices[code] = sane.open(code)
-        except _sane.error as err:
+        except _sane.error:
             _log.warning(f"Failure to open device from code '{code}'. Available codes: {Scan.get_available_codes()}")
             return 2
         return 0
@@ -138,7 +141,9 @@ class Scan:
             device.close()
         Scan.data_devices = dict()
 
-    def __init__(self, cb_print: Callable[[str], None] = print, args: Optional[List[str]] = None):
+    def __init__(self, *, cb_print: Callable[[str], None] = print,
+                 cb_init: Callable[[], None] = cb_dummy,
+                 args: Optional[List[str]] = None):
         self.cb_print = cb_print  # type: Callable[[str], None]
         arguments = self.parse_arguments(args)
         self.init_static()
@@ -147,26 +152,23 @@ class Scan:
             self.print(Scan.available_codes2str())
             sys.exit(0)
 
-        self.pfname_out = arguments.pfname_out
         self.format_output = E_OutputType.OT_PNG if arguments.png else E_OutputType.OT_PDF
         self.enforce_A4 = arguments.a4
-        self.scan_tp = E_ScanType.ST_SINGLE_FLATBED
-        if arguments.multi:
-            self.scan_tp = E_ScanType.ST_MULTI_ADF
-        elif arguments.scans:
-            self.scan_tp = E_ScanType.ST_MULTI_FLATBED
         self.code_hint = arguments.dev
-        self.code = Scan.complete_code_hint(self.code_hint)
-        Scan.init_device(self.code)
-
+        self.code = Scan.complete_code_hint(self.code_hint) if self.code_hint else None
         self.images = list()  # type: List[Image]
+
         if __name__ == '__main__':
-            self.scan()
-            if self.images:
-                self.print(f"Attempting to write {len(self.images)} images to file: '{self.pfname_out}'.")
-                self.save_images(self.pfname_out, self.images, tp=self.format_output, enforce_A4=self.enforce_A4)
+            scan_tp = E_ScanType.ST_MULTI_ADF if arguments.multi else E_ScanType.ST_SINGLE_FLATBED
+            Scan.init_device(self.code)
+            self.scan(scan_tp)
+            if self.images and arguments.pfname_out:
+                self.print(f"Attempting to write {len(self.images)} images to file: '{arguments.pfname_out}'.")
+                self.save_images(arguments.pfname_out, self.images, tp=self.format_output, enforce_A4=self.enforce_A4)
             else:
-                self.print(f"Failure to scan any images.")
+                (self.print(f"Failure to scan any images."))
+        else:
+            cb_init()
 
     @property
     def device(self) -> Optional[sane.SaneDev]:
@@ -186,7 +188,7 @@ class Scan:
     @staticmethod
     def convert_to_A4(im_input: Image) -> Optional[Image]:
         """:param im_input: Input Image.
-        :returns a new image that has been upscaled to match A4 format.
+        :returns a new image that has been up-scaled to match A4 format.
         Note: Google tells me, DIN A4 is 210 mm x 297 mm (8.27 in x 11.69 in)."""
         # https://stackoverflow.com/questions/27271138/python-pil-pillow-pad-image-to-desired-size-eg-a4
         if 'dpi' not in im_input.info:
@@ -242,15 +244,15 @@ class Scan:
             print(f"Failure to scan from device '{device}': {err}")
         return images
 
-    def scan(self, *, clear_images: bool = False):
+    def scan(self, scan_tp: E_ScanType, *, clear_images: bool = False):
         if clear_images:
             self.images.clear()
-        if self.scan_tp in (E_ScanType.ST_SINGLE_FLATBED, E_ScanType.ST_MULTI_FLATBED):
+        if scan_tp in (E_ScanType.ST_SINGLE_FLATBED, E_ScanType.ST_MULTI_FLATBED):
             self.scan_flatbed()
-        elif self.scan_tp == E_ScanType.ST_MULTI_ADF:
+        elif scan_tp == E_ScanType.ST_MULTI_ADF:
             self.scan_adf()
         else:
-            _log.warning(f"Unsupported scan type '{self.scan_tp.name}' encountered.")
+            _log.warning(f"Unsupported scan type '{scan_tp.name}' encountered.")
 
     @staticmethod
     def parse_arguments(args: Optional[List[str]] = None) -> argparse.Namespace:

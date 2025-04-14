@@ -3,11 +3,20 @@
 This is a tkinter user interface for the command line tool scan.py.
 
 Markus-Hermann Koch, https://github.com/kochsoft, 13th April 2025.
+
+Literature:
+===========
+* Background threads talking to tkinter thread via events.
+    https://stackoverflow.com/questions/64287940/update-tkinter-gui-from-a-separate-thread-running-a-command
+* About threads and passing arguments.
+    https://nitratine.net/blog/post/python-threading-basics/
 """
 
 import os
 import sys
+import time
 import logging
+import threading
 import tkinter as tk
 import tkinter.filedialog
 from pathlib import Path
@@ -86,14 +95,42 @@ class ScanGui:
         self.build_gui()
 
         if self.root:
+            self.scan = None  # type: Optional[Scan]
+            def t_init_scan():
+                self.scan = Scan(cb_print=self.print, cb_init=self.cb_init)
+            t = threading.Thread(target=t_init_scan)
+            t.daemon = True
+            t.start()
             self.root.mainloop()
-            #self.scan = Scan(self.print)
         else:
             _log.warning("No GUI available. Consider using the command line script, 'scan.py', directly.")
             sys.exit(1)
 
+    def handler_init(self, event: tk.Event):
+        self.print("Hihi!")
+
+    def cb_init(self):
+        self.root.event_generate("<<event1>>", when='tail', state=123)
+        self.print("did it")
+        #self.print(f"Initialization complete. {len(Scan.data_devices_info)} devices have been identified.")
+        # TODO! Add more sensible stuff here!
+
+    def call_threaded(self, fct_thd, cb_thd, args4thd: Optional[tuple]=None):
+        t = threading.Thread(target=fct_thd, args=args4thd)
+        t.daemon = True
+        t.start()
+
+    @staticmethod
+    def get_time(frmt: str = "%y%m%d_%H%M%S", unix_time_s: Optional[int] = None) -> str:
+        """:return Time string for introduction into file names."""
+        unix_time_s = int(time.time()) if unix_time_s is None else int(unix_time_s)
+        return time.strftime(frmt, time.localtime(unix_time_s))
+
     def print(self, msg: str):
-        print(msg)  # Todo: Move this into the target text area.
+        if self.ta_log:
+            self.ta_log.insert(1.0, f"{self.get_time('%H:%M:%S')}: {msg}\n")
+        else:
+            print(msg)
 
     def mb_about(self):
         msg = """This tkinter GUI is intended to provide a simple frontend to the otherwise useful
@@ -143,6 +180,9 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.frame.rowconfigure(2, weight=1)
         self.frame.pack(fill=tk.BOTH, expand=True)
         # < ----------------------------------------------------------
+        # > Event handlers for Scan threads. -------------------------
+        self.root.bind_all('<<Event1>>', self.handler_init)
+        # < ----------------------------------------------------------
         # > Menu. ----------------------------------------------------
         self.menu = tk.Menu(self.root)
         self.root.config(menu=self.menu)
@@ -178,7 +218,8 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
 
         self.ta_log = tk.Text(self.frame, height=10, width=self.width_column, state='normal', wrap=tk.WORD)
         self.ta_log.grid(row=2, column=0, columnspan=2, sticky='ewns')
-        self.ta_log.insert('1.0', 'Initializing. Please wait.')
+        #self.ta_log.insert('1.0', 'Initializing. Please wait.')
+        self.print('Initializing. Please wait.')
 
         self.button_scan_fb = tk.Button(self.frame, image=self.icon_single, command=self.scan_single)
         self.button_scan_fb.grid(row=3, column=0, sticky='ew')
