@@ -226,6 +226,18 @@ class Scan:
             images[0].save(pfname, tp.to_format(), dpi=(defaults['dpi'],defaults['dpi']))
         return 0
 
+    def scan_stop(self, code: Optional[str] = None):
+        if code is None:
+            code = self.code
+        device = Scan.data_devices[code] if code in Scan.data_devices else None  # type: Optional[sane.SaneDev]
+        if device:
+            self.print(f"Canceling scan from device '{code}'.")
+            device.close()
+            if code in Scan.data_devices:
+                del Scan.data_devices[code]
+        else:
+            self.print(f"Canceling scan from device '{code}' is unnecessary. Device does not seem to exist.")
+
     def scan_adf(self, code: Optional[str] = None, images: Optional[List[Image]] = None, *, cb_done: Optional[callable] = None) -> List[Image]:
         """Perform an ADF (Automatic Document Feeder) multi-scan and write temporary png graphics."""
         if code is None:
@@ -237,10 +249,14 @@ class Scan:
             self.print(f"Device '{code}' not available.")
             return images
         device.source = "ADF"
-        for image in device.multi_scan():
-            images.append(image.copy())
-        device.close()
-        del Scan.data_devices[code]
+        try:
+            for image in device.multi_scan():
+                images.append(image.copy())
+            device.close()
+        except _sane.error:
+            pass
+        if code in Scan.data_devices:
+            del Scan.data_devices[code]
         if cb_done:
             cb_done()
         return images
@@ -261,7 +277,8 @@ class Scan:
         except _sane.error as err:
             print(f"Failure to scan from device '{device}': {err}")
         device.close()
-        del Scan.data_devices[code]
+        if code in Scan.data_devices:
+            del Scan.data_devices[code]
         if cb_done:
             cb_done()
         return images

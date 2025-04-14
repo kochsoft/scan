@@ -37,6 +37,7 @@ pfname_png_logo = Path(pfname_script.parent, 'icons/logo.png')
 pfname_png_single = Path(pfname_script.parent, 'icons/single_scan.png')
 pfname_png_multi = Path(pfname_script.parent, 'icons/multi_scan.png')
 pfname_png_disk = Path(pfname_script.parent, 'icons/disk.png')
+pfname_png_stop = Path(pfname_script.parent, 'icons/stop.png')
 
 class TextWindow:
     """A glorified text box."""
@@ -74,6 +75,7 @@ class ScanGui:
         self.icon_single = None  # type: Optional[tk.PhotoImage]
         self.icon_multi = None  # type: Optional[tk.PhotoImage]
         self.icon_disk = None  # type: Optional[tk.PhotoImage]
+        self.icon_stop = None  # type: Optional[tk.PhotoImage]
 
         self.var_combo_device = None  # type: Optional[tk.StringVar]
         self.combo_device = None  # type: Optional[ttk.Combobox]
@@ -95,19 +97,26 @@ class ScanGui:
 
         self.build_gui()
         self.thread_init = None  # type: Optional[Thread]
+        self.thread_scan = None  # type: Optional[Thread]
+
         if self.root:
             self.scan = None  # type: Optional[Scan]
             self.threaded_initialize_Scan_object()
-            def t_wait_and_bind(ui):
-                time.sleep(0.5)
-                _log.info("Initializing root bind.")
-                self.root.bind_all('<<init_complete>>', self.handler_init)
-                self.root.bind_all('<<scan_complete>>', self.handler_init)
-            self.call_threaded(t_wait_and_bind, (self,))
+            self.call_threaded(ScanGui.t_wait_and_bind_events, (self,))
             self.root.mainloop()
         else:
             _log.warning("No GUI available. Consider using the command line script, 'scan.py', directly.")
             sys.exit(1)
+
+    @staticmethod
+    def t_wait_and_bind_events(ui):
+        """Threaded function that will sleep 0.5 seconds (until all GUI objects are defined), and then add
+        all local event bindings for later self.root.event_generate('..', when='tail', [state=]) commands
+        that in turn will trigger the event handlers registered below in self.build_GUI."""
+        time.sleep(0.5)
+        # _log.info("Initializing root bind.")
+        ui.root.bind_all('<<init_complete>>', ui.handler_init)
+        ui.root.bind_all('<<scan_complete>>', ui.handler_scan)
 
     @staticmethod
     def call_threaded(fct_thd, args4thd: Optional[tuple]=None) -> Thread:
@@ -119,9 +128,20 @@ class ScanGui:
         t.start()
         return t
 
+    def get_combo_index_by_value(self, val: Optional[str] = None) -> Optional[int]:
+        """Get the index of the combo_device combobox for the given string value. Or None if not found."""
+        codes = Scan.get_available_codes()
+        if val is None:
+            val = self.var_combo_device.get()
+        try:
+            return codes.index(val)
+        except ValueError:
+            return None
+
     def handler_init(self, event: tk.Event):
         """Initialization handler."""
         self.print(f"Initialization complete. {len(Scan.data_devices_info)} devices have been identified.\n{self.scan}")
+        self.enable_gui(True)
         code = self.scan.code
         index = 0
         codes = self.scan.get_available_codes()
@@ -135,8 +155,16 @@ class ScanGui:
         elif len(codes):
             self.combo_device.current(0)
 
+    def handler_scan(self, event: tk.Event):
+        self.enable_gui(True)
+        self.enable_stop(to_stop=False, enable=True, single_scan=True)
+        self.enable_stop(to_stop=False, enable=True, single_scan=False)
+
     def cb_init(self):
         self.root.event_generate("<<init_complete>>", when='tail') #, state=123)
+
+    def cb_scan(self):
+        self.root.event_generate("<<scan_complete>>", when='tail')  # , state=123)
 
     @staticmethod
     def get_time(frmt: str = "%y%m%d_%H%M%S", unix_time_s: Optional[int] = None) -> str:
@@ -152,10 +180,23 @@ class ScanGui:
 
     def threaded_initialize_Scan_object(self):
         """Start a new thread for filling self.scan."""
-        def t_init_scan(ui):
-            ui.scan = Scan(cb_print=self.print, cb_init=self.cb_init)
-            pass
-        self.thread_init = self.call_threaded(t_init_scan, (self,))
+        def t_init_scan_object(ui):
+            ui.scan = Scan(cb_print=self.print, cb_init=ui.cb_init)
+        self.call_threaded(t_init_scan_object, (self,))
+        self.enable_gui(False)
+
+    def threaded_initialize_scan_action(self, tp_: E_ScanType) -> Thread:
+        def t_init_scan_action(ui, tp: E_ScanType):
+            code = ui.var_combo_device.get()
+            if code not in Scan.data_devices:
+                Scan.init_device(code)
+            if tp == E_ScanType.ST_MULTI_ADF:
+                ui.scan.scan_adf(code=code, cb_done=ui.cb_scan)
+            else:
+                ui.scan.scan_flatbed(code=code, cb_done=ui.cb_scan)
+        self.enable_gui(False)
+        self.enable_stop(to_stop=True, enable=True, single_scan=(tp_ != E_ScanType.ST_MULTI_ADF))
+        return self.call_threaded(t_init_scan_action, (self, tp_))
 
     def mb_about(self):
         msg = """This tkinter GUI is intended to provide a simple frontend to the otherwise useful
@@ -191,25 +232,19 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
     def set_force_A4(self, val: bool):
         pass
 
-    def scan_now(self, tp: E_ScanType):
-        """Initialize flatbed or ADF (Automatic Document Feeder) scan."""
-        if self.verify_scan_object():
-            return
-        code = self.var_combo_device.get()
-        if code not in Scan.data_devices:
-            Scan.init_device(code)
-        if tp == E_ScanType.ST_MULTI_ADF:
-            self.scan.scan_adf(code=code)
-        else:
-            self.scan.scan_flatbed(code=code)
-
     def scan_single(self):
-        """Initialize flatbed-Scan."""
-        self.scan_now(E_ScanType.ST_SINGLE_FLATBED)
+        """Initialize flatbed-Scan, or cancel it, if such a thread is already running."""
+        if self.thread_scan and self.thread_scan.is_alive():
+            self.scan.scan_stop(self.var_combo_device.get())
+        else:
+            self.thread_scan = self.threaded_initialize_scan_action(E_ScanType.ST_SINGLE_FLATBED)
 
     def scan_multi(self):
-        """Initialize ADF (Automatic Document Feeder) scan."""
-        self.scan_now(E_ScanType.ST_MULTI_FLATBED)
+        """Initialize ADF (Automatic Document Feeder) scan, or cancel it, if such a thread is already running."""
+        if self.thread_scan and self.thread_scan.is_alive():
+            self.scan.scan_stop(self.var_combo_device.get())
+        else:
+            self.thread_scan = self.threaded_initialize_scan_action(E_ScanType.ST_MULTI_ADF)
 
     def save(self):
         if self.verify_scan_object():
@@ -225,6 +260,26 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.print(f"{success} {len(self.scan.images)} images, using base pfname '{pfname_out}'.")
         self.scan.images.clear()
 
+    def enable_stop(self, *, to_stop: bool, enable: bool, single_scan: bool):
+        target = self.button_scan_fb if single_scan else self.button_scan_adf  # type: tk.Button
+        icon_base = self.icon_single if single_scan else self.icon_multi  # type: tk.PhotoImage
+        icon = self.icon_stop if to_stop else icon_base
+        target.config(state='normal')
+        target.configure(image=icon)
+        target.photo = icon
+        if enable:
+            target.config(state='normal')
+        else:
+            target.config(state='disabled')
+
+    def enable_gui(self, enable: bool):
+        elts = [self.check_seascape, self.check_A4, self.button_scan_fb, self.button_scan_adf, self.button_save]
+        for widget in elts:
+            if enable:
+                widget.config(state='normal')
+            else:
+                widget.config(state='disabled')
+
     def build_gui(self):
         # > Main Window. ---------------------------------------------
         self.root = tk.Tk()
@@ -234,6 +289,7 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.icon_single = tk.PhotoImage(file=str(pfname_png_single))
         self.icon_multi = tk.PhotoImage(file=str(pfname_png_multi))
         self.icon_disk = tk.PhotoImage(file=str(pfname_png_disk))
+        self.icon_stop = tk.PhotoImage(file=str(pfname_png_stop))
         self.root.iconphoto(True, self.icon_single)
 
         self.frame = tk.Frame(self.root)  #, bg='orange')
@@ -241,9 +297,6 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.frame.columnconfigure(1, weight=1)
         self.frame.rowconfigure(2, weight=1)
         self.frame.pack(fill=tk.BOTH, expand=True)
-        # < ----------------------------------------------------------
-        # > Event handlers for Scan threads. -------------------------
-        #self.root.bind_all('<<init_complete>>', self.handler_init)
         # < ----------------------------------------------------------
         # > Menu. ----------------------------------------------------
         self.menu = tk.Menu(self.root)
