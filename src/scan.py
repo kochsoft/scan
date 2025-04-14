@@ -202,7 +202,7 @@ class Scan:
         return im_out
 
     @staticmethod
-    def save_images(pfname: str, images: List[Image], *, tp: E_OutputType = E_OutputType.OT_PDF, enforce_A4: bool = False) -> int:
+    def save_images(pfname: str, images: List[Image], *, tp: E_OutputType = E_OutputType.OT_PDF, enforce_A4: bool = False, seascape = False) -> int:
         if not images:
             _log.warning(f"Failure to write target file '{pfname}': Given image list is empty.")
             return 1
@@ -211,6 +211,11 @@ class Scan:
             for img in images:
                 images_A4.append(Scan.convert_to_A4(img))
             images = images_A4
+        if seascape:
+            images_seascape = list()  # type: List[Image]
+            for img in images:
+                images_seascape.append(img.rotate(90, expand=True))
+            images = images_seascape
         if len(images) > 1:
             if tp == E_OutputType.OT_PDF:
                 images[0].save(pfname, tp.to_format(), dpi=(defaults['dpi'],defaults['dpi']), save_all=True, append_images=images[1:])

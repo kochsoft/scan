@@ -253,10 +253,11 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
             self.print("No scanned images available for saving.")
             return
         force_A4 = bool(self.var_check_A4.get())
+        seascape = bool(self.var_check_seascape.get())
         files = [('PDF', '*.pdf'), ('png', '*.png')]
-        pfname_out = tk.filedialog.asksaveasfilename(filetypes=files, title=f'Save {len(self.scan.images)} images as document(s)')
+        pfname_out = tk.filedialog.asksaveasfilename(filetypes=files, title=f'Save {len(self.scan.images)} images as document(s)', defaultextension='.pdf')
         tp = E_OutputType.OT_PNG if pfname_out.lower().endswith('png') else E_OutputType.OT_PDF
-        success = 'Failure to save' if self.scan.save_images(pfname_out, self.scan.images, tp=tp, enforce_A4=force_A4) else 'Successfully saved '
+        success = 'Failure to save' if self.scan.save_images(pfname_out, self.scan.images, tp=tp, enforce_A4=force_A4, seascape=seascape) else 'Successfully saved '
         self.print(f"{success} {len(self.scan.images)} images, using base pfname '{pfname_out}'.")
         self.scan.images.clear()
 
@@ -324,7 +325,7 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.var_check_seascape = tk.IntVar()
         self.check_seascape = tk.Checkbutton(self.frame, anchor=tk.W, text='Seascape', variable=self.var_check_seascape, command=lambda: self.set_png(bool(self.var_check_seascape.get())))
         self.check_seascape.grid(row=1, column=0, sticky='ew')
-        Hovertip(self.check_seascape, 'NOT IMPLEMENTED. Normally files will be saved landscape (long edge is vertical). Check this to get seascape.')
+        Hovertip(self.check_seascape, 'Normally files will be saved landscape (long edge is vertical). Check this to get seascape.')
 
         self.var_check_A4 = tk.IntVar()
         self.check_A4 = tk.Checkbutton(self.frame, anchor=tk.W, text='Force A4', variable=self.var_check_A4, command=lambda: self.set_force_A4(bool(self.var_check_A4.get())))
