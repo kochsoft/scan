@@ -25,6 +25,7 @@ import os
 import sys
 import logging
 import argparse
+import tkinter.messagebox
 from enum import Enum
 from pathlib import Path
 from argparse import RawTextHelpFormatter

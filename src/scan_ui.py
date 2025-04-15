@@ -113,6 +113,30 @@ class ScanGui:
             _log.warning("No GUI available. Consider using the command line script, 'scan.py', directly.")
             sys.exit(1)
 
+    def ask_ok(self, msg, title: str = 'Acceptable?', icon: str=tkinter.messagebox.WARNING) -> bool:
+        """Open a dialog asking for ok or cancel.
+        :returns True if and only if Ok was selected. False else."""
+        decision = tkinter.messagebox.Message(self.root, message=msg, title=title, icon=icon, type=tkinter.messagebox.OKCANCEL).show()
+        return decision == tkinter.messagebox.OK
+
+    @property
+    def label_pages_number(self) -> int:
+        """Getter for the number that is displayed in self.label_pages_number."""
+        if not self.label_pages:
+            return 0
+        text = self.label_pages.cget('text')
+        numbers = re.findall('([0-9]+)', text)
+        return int(numbers[-1]) if numbers else 0
+
+    @label_pages_number.setter
+    def label_pages_number(self, val: int):
+        """Setter for the number that is displayed in self.label_pages_number."""
+        if val < 0:
+            val = 0
+        if self.label_pages:
+            text = re.sub('[0-9]+', str(val), str(self.label_pages.cget('text')))
+            self.label_pages.config(text=text)
+
     @staticmethod
     def t_wait_and_bind_events(ui):
         """Threaded function that will sleep 0.5 seconds (until all GUI objects are defined), and then add
@@ -160,24 +184,6 @@ class ScanGui:
             self.combo_device.current(index)
         elif len(codes):
             self.combo_device.current(0)
-
-    @property
-    def label_pages_number(self) -> int:
-        """Getter for the number that is displayed in self.label_pages_number."""
-        if not self.label_pages:
-            return 0
-        text = self.label_pages.cget('text')
-        numbers = re.findall('([0-9]+)', text)
-        return int(numbers[-1]) if numbers else 0
-
-    @label_pages_number.setter
-    def label_pages_number(self, val: int):
-        """Setter for the number that is displayed in self.label_pages_number."""
-        if val < 0:
-            val = 0
-        if self.label_pages:
-            text = re.sub('[0-9]+', str(val), str(self.label_pages.cget('text')))
-            self.label_pages.config(text=text)
 
     def handler_scan(self, event: tk.Event):
         self.enable_gui(True)
@@ -254,23 +260,19 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
             return 2
         return 0
 
-    def set_png(self, val: bool):
-        pass
-
-    def set_force_A4(self, val: bool):
-        pass
-
     def scan_single(self):
         """Initialize flatbed-Scan, or cancel it, if such a thread is already running."""
         if self.thread_scan and self.thread_scan.is_alive():
-            self.scan.scan_stop(self.var_combo_device.get())
+            if self.ask_ok('Do you want to cancel the ongoing flatbed scan process?', 'Cancel flatbed scan'):
+                self.scan.scan_stop(self.var_combo_device.get())
         else:
             self.thread_scan = self.threaded_initialize_scan_action(E_ScanType.ST_SINGLE_FLATBED)
 
     def scan_multi(self):
         """Initialize ADF (Automatic Document Feeder) scan, or cancel it, if such a thread is already running."""
         if self.thread_scan and self.thread_scan.is_alive():
-            self.scan.scan_stop(self.var_combo_device.get())
+            if self.ask_ok('Do you want to cancel the ongoing ADF scan process?', 'Cancel ADF scan'):
+                self.scan.scan_stop(self.var_combo_device.get())
         else:
             self.thread_scan = self.threaded_initialize_scan_action(E_ScanType.ST_MULTI_ADF)
 
@@ -372,12 +374,12 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         Hovertip(self.combo_device, 'Once initialized, select the scanning device intended for usage.')
 
         self.var_check_seascape = tk.IntVar()
-        self.check_seascape = tk.Checkbutton(self.tab1, anchor=tk.W, text='Seascape', variable=self.var_check_seascape, command=lambda: self.set_png(bool(self.var_check_seascape.get())))
+        self.check_seascape = tk.Checkbutton(self.tab1, anchor=tk.W, text='Seascape', variable=self.var_check_seascape)
         self.check_seascape.grid(row=1, column=0, sticky='ew')
         Hovertip(self.check_seascape, 'Normally files will be saved landscape (long edge is vertical). Check this to get seascape.')
 
         self.var_check_A4 = tk.IntVar()
-        self.check_A4 = tk.Checkbutton(self.tab1, anchor=tk.W, text='Force A4', variable=self.var_check_A4, command=lambda: self.set_force_A4(bool(self.var_check_A4.get())))
+        self.check_A4 = tk.Checkbutton(self.tab1, anchor=tk.W, text='Force A4', variable=self.var_check_A4)
         self.check_A4.grid(row=1, column=1, sticky='ew')
         Hovertip(self.check_A4, 'If checked A4 image size will be enforced. This usually is unnecessary.')
 
