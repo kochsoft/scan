@@ -179,7 +179,7 @@ class ScanGui:
                 self.image_preview = image.resize(sz_image_new)
             else:
                 self.image_preview = image
-        self.photo_preview = ImageTk.PhotoImage(self.image_preview)
+        self.photo_preview = ImageTk.PhotoImage(self.image_preview) if self.image_preview else self.icon_empty
         self.label_preview['image'] = self.photo_preview
 
     def show_preview(self, val: Optional[int] = None):

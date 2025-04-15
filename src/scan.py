@@ -25,7 +25,6 @@ import os
 import sys
 import logging
 import argparse
-import tkinter.messagebox
 from enum import Enum
 from pathlib import Path
 from argparse import RawTextHelpFormatter
@@ -316,7 +315,7 @@ class Scan:
             args = sys.argv[1:]
         desc = """Smallish UI project for offering the most common scanner functions of an Epson ET 4850 device."""
         epilog = f"""Example call:
-$ python3 {Path(sys.argv[0]).name}"""
+$ python3 scan_ui.py"""
         parser = argparse.ArgumentParser(prog='scan.py', description=desc, epilog=epilog, formatter_class=RawTextHelpFormatter)
         parser.add_argument('--list', action='store_true', help="Identify all available devices and print the list.")
         parser.add_argument('--dev', type=str, help="At least part of a device name. From known devices will use the "+\
