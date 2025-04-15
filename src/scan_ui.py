@@ -11,6 +11,7 @@ Literature:
 [2] About threads and passing arguments.
     https://nitratine.net/blog/post/python-threading-basics/
 [3] Displaying a PIL image in a label.
+    https://python-forum.io/thread-38512.html
     https://www.activestate.com/resources/quick-reads/how-to-add-images-in-tkinter/
 """
 
@@ -21,6 +22,7 @@ import tkinter.filedialog
 from tkinter import ttk
 from threading import Thread
 from idlelib.tooltip import Hovertip
+from PIL import ImageTk
 
 from scan import *
 
@@ -93,6 +95,7 @@ class ScanGui:
         self.button_save = None  # type: Optional[tk.Button]
         self.label_pages = None  # type: Optional[tk.Label]
 
+        self.photo_preview = None  # type: Optional[ImageTk.PhotoImage]
         self.label_preview = None  # type: Optional[tk.Label]
         self.var_combo_index_preview = None  # type: Optional[tk.StringVar]
         self.combo_index_preview = None  # type: Optional[ttk.Combobox]
@@ -136,6 +139,49 @@ class ScanGui:
         if self.label_pages:
             text = re.sub('[0-9]+', str(val), str(self.label_pages.cget('text')))
             self.label_pages.config(text=text)
+
+    def show_preview(self, val: Optional[int] = None):
+        def drop_image():
+            self.label_preview['image'] = self.icon_delete
+        n = len(self.scan.images) if self.scan else 0
+        if n:
+            try:
+                val = int(self.combo_index_preview.get() if val is None else val)
+                if val >= n:
+                    val = n-1
+                elif val < 0:
+                    val = 0
+            except ValueError:
+                drop_image()
+                return
+            self.photo_preview = ImageTk.PhotoImage(self.scan.images[val])
+            self.label_preview['image'] = self.photo_preview
+        else:
+            drop_image()
+            return
+
+    def handler_show_preview(self, event):
+        self.show_preview()
+
+    def update_previews(self):
+        """Parses the images list and the preview combobox and updates the preview tab accordingly."""
+        n = len(self.scan.images) if self.scan else 0
+        elts = (self.label_preview, self.combo_index_preview, self.button_delete_image)
+        for elt in elts:
+            elt.config(state='disabled' if (n==0) else 'normal')
+        if not n:
+            empty = '<empty>'
+            self.combo_index_preview['values'] = (empty,)
+            self.var_combo_index_preview.set(empty)
+        else:
+            val = self.var_combo_index_preview.get()
+            tpl = tuple([str(j) for j in range(n)])
+            self.combo_index_preview['values'] = tpl
+            if val not in tpl:
+                self.var_combo_index_preview.set(tpl[-1])
+        if self.thread_scan and self.thread_scan.is_alive():
+            self.button_delete_image.config(state='disabled')
+        self.show_preview()
 
     @staticmethod
     def t_wait_and_bind_events(ui):
@@ -190,6 +236,7 @@ class ScanGui:
         self.enable_stop(to_stop=False, enable=True, single_scan=True)
         self.enable_stop(to_stop=False, enable=True, single_scan=False)
         self.label_pages_number = len(self.scan.images)
+        self.update_previews()
 
     def cb_init(self):
         self.root.event_generate("<<init_complete>>", when='tail') #, state=123)
@@ -214,10 +261,14 @@ class ScanGui:
 
     def threaded_initialize_Scan_object(self):
         """Start a new thread for filling self.scan."""
+        if self.thread_init and self.thread_init.is_alive():
+            self.print("Initialization already in progress. Won't start it a second time.")
+            return
         def t_init_scan_object(ui):
             ui.scan = Scan(cb_print=self.print, cb_init=ui.cb_init)
-        self.call_threaded(t_init_scan_object, (self,))
+        self.thread_init = self.call_threaded(t_init_scan_object, (self,))
         self.enable_gui(False)
+        self.update_previews()
 
     def threaded_initialize_scan_action(self, tp_: E_ScanType) -> Thread:
         def t_init_scan_action(ui, tp: E_ScanType):
@@ -231,6 +282,21 @@ class ScanGui:
         self.enable_gui(False)
         self.enable_stop(to_stop=True, enable=True, single_scan=(tp_ != E_ScanType.ST_MULTI_ADF))
         return self.call_threaded(t_init_scan_action, (self, tp_))
+
+    def refresh_devices(self):
+        if self.thread_init and self.thread_init.is_alive():
+            self.print("Unable to refresh while initialization is still running.")
+            return
+        if self.thread_scan and self.thread_scan.is_alive():
+            self.print("Unable to refresh while scan procedure in progress.")
+            return
+        if self.ask_ok('This will reset all device elements and reinitialize them.', 'Refresh all devices'):
+            Scan.reset()
+            self.thread_init = None
+            self.thread_scan = None
+            self.scan = None
+            self.print("Reinitializing. Please wait ...")
+            self.threaded_initialize_Scan_object()
 
     def mb_about(self):
         msg = """This tkinter GUI is intended to provide a simple frontend to the otherwise useful
@@ -293,8 +359,19 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.label_pages_number = 0
 
     def delete_image(self):
-        """TODO! Implement me to delete the image that is currently shown in the preview combobox."""
-        pass
+        """Drop an image from the images list and update the preview tab accordingly."""
+        n = len(self.scan.images) if self.scan else 0
+        if not n:
+            return  # << Nothing to delete.
+        try:
+            val = int(self.var_combo_index_preview.get())
+            if val < 0 or val >= n:
+                return
+            del self.scan.images[val]
+            self.label_pages_number = n-1
+        except ValueError:
+            return
+        self.update_previews()
 
     def enable_stop(self, *, to_stop: bool, enable: bool, single_scan: bool):
         target = self.button_scan_fb if single_scan else self.button_scan_adf  # type: tk.Button
@@ -335,6 +412,8 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
 
         menu_files = tk.Menu(self.menu, tearoff=0)
         self.menu.add_cascade(label='File', menu=menu_files)
+        menu_files.add_command(label='Refresh Devices', command=self.refresh_devices)
+        menu_files.add_separator()
         menu_files.add_command(label='Exit', command=self.root.quit)
 
         menu_help = tk.Menu(self.menu, tearoff=0)
@@ -413,10 +492,11 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.combo_index_preview['values'] = '<empty>',
         self.combo_index_preview['state'] = 'readonly'
         self.combo_index_preview.current(0)
+        self.combo_index_preview.bind('<<ComboboxSelected>>', self.handler_show_preview)
         Hovertip(self.combo_index_preview, 'Select the image index to review the respective scan.')
 
         self.button_delete_image = tk.Button(self.tab2, image=self.icon_delete, command=self.delete_image)
-        self.button_delete_image.grid(row=1, column=1, sticky='ew')
+        self.button_delete_image.grid(row=1, column=1, rowspan=3, sticky='ew')
         Hovertip(self.button_delete_image, 'Delete the currently visible image.')
         # < ----------------------------------------------------------
 

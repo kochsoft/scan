@@ -91,6 +91,14 @@ class Scan:
             Scan.data_devices_info = sane.get_devices()
 
     @staticmethod
+    def reset():
+        """Closes all devices and resets all global properties."""
+        Scan.close_all()
+        Scan.data_init = None
+        Scan.data_devices_info = list()
+        Scan.data_devices = dict()
+
+    @staticmethod
     def complete_code_hint(code_hint: Optional[str] = None) -> Optional[str]:
         """:returns a proper code for sane.open. Or None, in case of failure."""
         if code_hint is None:
@@ -140,7 +148,10 @@ class Scan:
     @staticmethod
     def close_all():
         for device in Scan.data_devices.values():
-            device.close()
+            try:
+                device.close()
+            except _sane.error:
+                pass
         Scan.data_devices = dict()
 
     def __init__(self, *, cb_print: Callable[[str], None] = print,
