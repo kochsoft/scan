@@ -38,6 +38,9 @@ pfname_png_single = Path(pfname_script.parent, 'icons/single_scan.png')
 pfname_png_multi = Path(pfname_script.parent, 'icons/multi_scan.png')
 pfname_png_disk = Path(pfname_script.parent, 'icons/disk.png')
 pfname_png_stop = Path(pfname_script.parent, 'icons/stop.png')
+pfname_png_empty = Path(pfname_script.parent, 'icons/empty.png')
+pfname_png_up_image = Path(pfname_script.parent, 'icons/up_image.png')
+pfname_png_dn_image = Path(pfname_script.parent, 'icons/dn_image.png')
 pfname_png_delete = Path(pfname_script.parent, 'icons/delete.png')
 
 class TextWindow:
@@ -79,6 +82,9 @@ class ScanGui:
         self.icon_multi = None  # type: Optional[tk.PhotoImage]
         self.icon_disk = None  # type: Optional[tk.PhotoImage]
         self.icon_stop = None  # type: Optional[tk.PhotoImage]
+        self.icon_empty = None  # type: Optional[tk.PhotoImage]
+        self.icon_up_image = None  # type: Optional[tk.PhotoImage]
+        self.icon_dn_image = None  # type: Optional[tk.PhotoImage]
         self.icon_delete = None  # type: Optional[tk.PhotoImage]
 
         self.var_combo_device = None  # type: Optional[tk.StringVar]
@@ -99,6 +105,8 @@ class ScanGui:
         self.label_preview = None  # type: Optional[tk.Label]
         self.var_combo_index_preview = None  # type: Optional[tk.StringVar]
         self.combo_index_preview = None  # type: Optional[ttk.Combobox]
+        self.button_up_image = None  # type: Optional[tk.Button]
+        self.button_dn_image = None  # type: Optional[tk.Button]
         self.button_delete_image = None  # type: Optional[tk.Button]
 
         self.menu = None  # type: Optional[tk.Menu]
@@ -142,7 +150,7 @@ class ScanGui:
 
     def show_preview(self, val: Optional[int] = None):
         def drop_image():
-            self.label_preview['image'] = self.icon_delete
+            self.label_preview['image'] = self.icon_empty
         n = len(self.scan.images) if self.scan else 0
         if n:
             try:
@@ -160,13 +168,30 @@ class ScanGui:
             drop_image()
             return
 
+    def update_buttons_up_dn_image(self):
+        """Adjust enabled status of the up and dn buttons of the image preview tab."""
+        n = len(self.scan.images) if self.scan else 0
+        enable_up = False
+        enable_dn = False
+        try:
+            val = int(self.var_combo_index_preview.get())
+            if val > 0:
+                enable_up = True
+            if val < n-1:
+                enable_dn = True
+        except ValueError:
+            pass
+        self.button_up_image.config(state = 'normal' if enable_up else 'disabled')
+        self.button_dn_image.config(state = 'normal' if enable_dn else 'disabled')
+
     def handler_show_preview(self, event):
+        self.update_buttons_up_dn_image()
         self.show_preview()
 
     def update_previews(self):
         """Parses the images list and the preview combobox and updates the preview tab accordingly."""
         n = len(self.scan.images) if self.scan else 0
-        elts = (self.label_preview, self.combo_index_preview, self.button_delete_image)
+        elts = (self.label_preview, self.combo_index_preview, self.button_delete_image, self.button_up_image, self.button_dn_image)
         for elt in elts:
             elt.config(state='disabled' if (n==0) else 'normal')
         if not n:
@@ -179,6 +204,10 @@ class ScanGui:
             self.combo_index_preview['values'] = tpl
             if val not in tpl:
                 self.var_combo_index_preview.set(tpl[-1])
+            if self.var_combo_index_preview.get() == tpl[0]:
+                self.button_up_image.config(state='disabled')
+            if self.var_combo_index_preview.get() == tpl[-1]:
+                self.button_dn_image.config(state='disabled')
         if self.thread_scan and self.thread_scan.is_alive():
             self.button_delete_image.config(state='disabled')
         self.show_preview()
@@ -358,6 +387,18 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.scan.images.clear()
         self.label_pages_number = 0
 
+    def up_image(self):
+        j = int(self.var_combo_index_preview.get()) - 1
+        self.var_combo_index_preview.set(str(j))
+        self.show_preview()
+        self.update_buttons_up_dn_image()
+
+    def dn_image(self):
+        j = int(self.var_combo_index_preview.get()) + 1
+        self.var_combo_index_preview.set(str(j))
+        self.show_preview()
+        self.update_buttons_up_dn_image()
+
     def delete_image(self):
         """Drop an image from the images list and update the preview tab accordingly."""
         n = len(self.scan.images) if self.scan else 0
@@ -403,6 +444,9 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.icon_multi = tk.PhotoImage(file=str(pfname_png_multi))
         self.icon_disk = tk.PhotoImage(file=str(pfname_png_disk))
         self.icon_stop = tk.PhotoImage(file=str(pfname_png_stop))
+        self.icon_empty = tk.PhotoImage(file=str(pfname_png_empty))
+        self.icon_up_image = tk.PhotoImage(file=str(pfname_png_up_image))
+        self.icon_dn_image = tk.PhotoImage(file=str(pfname_png_dn_image))
         self.icon_delete = tk.PhotoImage(file=str(pfname_png_delete))
         self.root.iconphoto(True, self.icon_single)
         # < ----------------------------------------------------------
@@ -483,7 +527,7 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         Hovertip(self.label_pages, 'If a document were to be saved now it should receive this many pages.')
         # < ----------------------------------------------------------
         # > Control elements tab2. -----------------------------------
-        self.label_preview = tk.Label(self.tab2, text='Implement me! See Literature [3].', relief=tk.RIDGE, anchor=tk.W)
+        self.label_preview = tk.Label(self.tab2, image=self.icon_empty, relief=tk.RIDGE, anchor=tk.W)
         self.label_preview.grid(row=0, column=0, columnspan=2, sticky='nsew')
 
         self.var_combo_index_preview = tk.StringVar()
@@ -495,8 +539,14 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.combo_index_preview.bind('<<ComboboxSelected>>', self.handler_show_preview)
         Hovertip(self.combo_index_preview, 'Select the image index to review the respective scan.')
 
+        self.button_up_image = tk.Button(self.tab2, image=self.icon_up_image, command=self.up_image)
+        self.button_up_image.grid(row=2, column=0, sticky='ew')
+
+        self.button_dn_image = tk.Button(self.tab2, image=self.icon_dn_image, command=self.dn_image)
+        self.button_dn_image.grid(row=3, column=0, sticky='ew')
+
         self.button_delete_image = tk.Button(self.tab2, image=self.icon_delete, command=self.delete_image)
-        self.button_delete_image.grid(row=1, column=1, rowspan=3, sticky='ew')
+        self.button_delete_image.grid(row=1, column=1, rowspan=3, sticky='nsew')
         Hovertip(self.button_delete_image, 'Delete the currently visible image.')
         # < ----------------------------------------------------------
 
