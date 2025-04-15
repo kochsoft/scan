@@ -22,7 +22,9 @@ import tkinter.filedialog
 from tkinter import ttk
 from threading import Thread
 from idlelib.tooltip import Hovertip
-from PIL import ImageTk
+
+import PIL.Image
+from PIL import Image, ImageTk
 
 from scan import *
 
@@ -82,7 +84,7 @@ class ScanGui:
         self.icon_multi = None  # type: Optional[tk.PhotoImage]
         self.icon_disk = None  # type: Optional[tk.PhotoImage]
         self.icon_stop = None  # type: Optional[tk.PhotoImage]
-        self.icon_empty = None  # type: Optional[tk.PhotoImage]
+        self.icon_empty = None  # type: Optional[ImageTk.PhotoImage]
         self.icon_up_image = None  # type: Optional[tk.PhotoImage]
         self.icon_dn_image = None  # type: Optional[tk.PhotoImage]
         self.icon_delete = None  # type: Optional[tk.PhotoImage]
@@ -101,6 +103,8 @@ class ScanGui:
         self.button_save = None  # type: Optional[tk.Button]
         self.label_pages = None  # type: Optional[tk.Label]
 
+        self.image_empty = None  # type: Optional[Image]
+        self.image_preview = None  # type: Optional[Image]
         self.photo_preview = None  # type: Optional[ImageTk.PhotoImage]
         self.label_preview = None  # type: Optional[tk.Label]
         self.var_combo_index_preview = None  # type: Optional[tk.StringVar]
@@ -148,6 +152,36 @@ class ScanGui:
             text = re.sub('[0-9]+', str(val), str(self.label_pages.cget('text')))
             self.label_pages.config(text=text)
 
+    def update_preview_image(self, image: Optional[Image] = None):
+        is_empty = False
+        if image is None:
+            try:
+                val = int(self.var_combo_index_preview.get())
+                image = self.scan.images[val].copy()
+            except (AttributeError, IndexError, ValueError):
+                image = self.image_empty.copy()
+                is_empty = True
+        sz_widget = self.label_preview.winfo_width(), self.label_preview.winfo_height()
+        sz_image = image.size
+        if sz_widget[1] > 1 and sz_image[1] > 1:
+            if is_empty:
+                sz_image_new = sz_widget
+            else:
+                factor = 1.
+                aspect_widget = sz_widget[0] / sz_widget[1]
+                aspect_image = sz_image[0]  /  sz_image[1]
+                if aspect_widget > aspect_image:
+                    factor = sz_widget[1] / sz_image[1]
+                elif aspect_widget < aspect_image:
+                    factor = sz_widget[0] / sz_image[0]
+                sz_image_new = int(sz_image[0] * factor), int(sz_image[1] * factor)
+            if sz_image_new[0] > 0 and sz_image_new[1] > 0:
+                self.image_preview = image.resize(sz_image_new)
+            else:
+                self.image_preview = image
+        self.photo_preview = ImageTk.PhotoImage(self.image_preview)
+        self.label_preview['image'] = self.photo_preview
+
     def show_preview(self, val: Optional[int] = None):
         def drop_image():
             self.label_preview['image'] = self.icon_empty
@@ -162,8 +196,7 @@ class ScanGui:
             except ValueError:
                 drop_image()
                 return
-            self.photo_preview = ImageTk.PhotoImage(self.scan.images[val])
-            self.label_preview['image'] = self.photo_preview
+            self.update_preview_image(self.scan.images[val])
         else:
             drop_image()
             return
@@ -183,6 +216,9 @@ class ScanGui:
             pass
         self.button_up_image.config(state = 'normal' if enable_up else 'disabled')
         self.button_dn_image.config(state = 'normal' if enable_dn else 'disabled')
+
+    def handler_resize_label_preview(self, event):
+        self.update_preview_image()
 
     def handler_show_preview(self, event):
         self.update_buttons_up_dn_image()
@@ -384,8 +420,6 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         tp = E_OutputType.OT_PNG if pfname_out.lower().endswith('png') else E_OutputType.OT_PDF
         success = 'Failure to save' if self.scan.save_images(pfname_out, self.scan.images, tp=tp, enforce_A4=force_A4, seascape=seascape) else 'Successfully saved '
         self.print(f"{success} {len(self.scan.images)} images, using base pfname '{pfname_out}'.")
-        self.scan.images.clear()
-        self.label_pages_number = 0
 
     def up_image(self):
         j = int(self.var_combo_index_preview.get()) - 1
@@ -412,6 +446,20 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
             self.label_pages_number = n-1
         except ValueError:
             return
+        self.update_previews()
+
+    def delete_image_stack(self):
+        """Gracefully drop all images."""
+        n = len(self.scan.images) if self.scan else 0
+        if n == 0:
+            self.print("There are no images to delete.")
+            return
+        if self.thread_scan and self.thread_scan.is_alive():
+            self.print("Will not delete image stack while scan in progress.")
+            return
+        if not self.ask_ok('This will delete all currently scanned images. Are you sure?', 'Delete image stack'):
+            return
+        self.scan.images.clear()
         self.update_previews()
 
     def enable_stop(self, *, to_stop: bool, enable: bool, single_scan: bool):
@@ -444,7 +492,8 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.icon_multi = tk.PhotoImage(file=str(pfname_png_multi))
         self.icon_disk = tk.PhotoImage(file=str(pfname_png_disk))
         self.icon_stop = tk.PhotoImage(file=str(pfname_png_stop))
-        self.icon_empty = tk.PhotoImage(file=str(pfname_png_empty))
+        self.image_empty = PIL.Image.open(str(pfname_png_empty))
+        self.icon_empty = ImageTk.PhotoImage(self.image_empty)
         self.icon_up_image = tk.PhotoImage(file=str(pfname_png_up_image))
         self.icon_dn_image = tk.PhotoImage(file=str(pfname_png_dn_image))
         self.icon_delete = tk.PhotoImage(file=str(pfname_png_delete))
@@ -456,6 +505,7 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
 
         menu_files = tk.Menu(self.menu, tearoff=0)
         self.menu.add_cascade(label='File', menu=menu_files)
+        menu_files.add_command(label='Delete Image Stack', command=self.delete_image_stack)
         menu_files.add_command(label='Refresh Devices', command=self.refresh_devices)
         menu_files.add_separator()
         menu_files.add_command(label='Exit', command=self.root.quit)
@@ -465,7 +515,9 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         menu_help.add_command(label='About ...', command=self.mb_about)
         # < ----------------------------------------------------------
         # > Tabs. ----------------------------------------------------
-        self.tabControl = ttk.Notebook(self.root)
+        # style = ttk.Style(self.root)
+        # style.configure('lefttab.TNotebook', tabposition='ne')
+        self.tabControl = ttk.Notebook(self.root) #, style='lefttab.TNotebook')
 
         self.tab1 = ttk.Frame(self.tabControl)
         self.tab1.columnconfigure(0, weight=1)
@@ -490,7 +542,7 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         # [Note: The var for the combobox needs to be a persistent variable.]
         self.var_combo_device = tk.StringVar()
         self.combo_device = ttk.Combobox(self.tab1, textvariable=self.var_combo_device, width=self.width_column)
-        self.combo_device.grid(row=0,column=0, columnspan=2, sticky='ew')
+        self.combo_device.grid(row=1,column=0, columnspan=2, sticky='ew')
         self.combo_device['values'] = '<empty>',
         self.combo_device['state'] = 'readonly'
         self.combo_device.current(0)
@@ -498,12 +550,12 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
 
         self.var_check_seascape = tk.IntVar()
         self.check_seascape = tk.Checkbutton(self.tab1, anchor=tk.W, text='Seascape', variable=self.var_check_seascape)
-        self.check_seascape.grid(row=1, column=0, sticky='ew')
+        self.check_seascape.grid(row=0, column=0, sticky='ew')
         Hovertip(self.check_seascape, 'Normally files will be saved landscape (long edge is vertical). Check this to get seascape.')
 
         self.var_check_A4 = tk.IntVar()
         self.check_A4 = tk.Checkbutton(self.tab1, anchor=tk.W, text='Force A4', variable=self.var_check_A4)
-        self.check_A4.grid(row=1, column=1, sticky='ew')
+        self.check_A4.grid(row=0, column=1, sticky='ew')
         Hovertip(self.check_A4, 'If checked A4 image size will be enforced. This usually is unnecessary.')
 
         self.ta_log = tk.Text(self.tab1, height=10, width=self.width_column, state='normal', wrap=tk.WORD)
@@ -527,8 +579,10 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         Hovertip(self.label_pages, 'If a document were to be saved now it should receive this many pages.')
         # < ----------------------------------------------------------
         # > Control elements tab2. -----------------------------------
-        self.label_preview = tk.Label(self.tab2, image=self.icon_empty, relief=tk.RIDGE, anchor=tk.W)
+        self.label_preview = tk.Label(self.tab2, relief=tk.RIDGE, anchor=tk.W)
+        self.label_preview['image'] = self.icon_empty
         self.label_preview.grid(row=0, column=0, columnspan=2, sticky='nsew')
+        self.label_preview.bind('<Configure>', self.handler_resize_label_preview)
 
         self.var_combo_index_preview = tk.StringVar()
         self.combo_index_preview = ttk.Combobox(self.tab2, textvariable=self.var_combo_index_preview)
