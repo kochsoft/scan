@@ -1,6 +1,9 @@
 # Scan
 
-A tkinter UI frontend for the **Sane** library.
+A UI frontend for the **Sane** library.
+
+Aiming at **ease of use** for scanning, both from flatbed and automatic
+document feeder, and, as a side effect, even some cameras.
 
 A proper wiki page is yet a **ToDo**. However, at this time at least some
 screenshots are available at
@@ -39,28 +42,26 @@ Copy the `./src` directories contents to where you want them.
 At the top of `scan.py` is a short section **config.sys** where some
 default values can be set to your needs.
 
-Most notably, the default scanner code. My own scanner is embedded in
-an Epson ET-4850 printer and is set as the default default in the ffile.
+Most notably, the default scanner `code`. My own scanner is embedded in
+an Epson ET-4850 printer and is set as the default default in the ffile:
+
+```
+airscan:e0:EPSON ET-4850 Series
+```
+
+Upon starting the `scan_ui.py`, it will first look for available scanners
+on your system. At the top of the main tab there is a combobox where the
+scanners that have been identified are noted in form of their device codes.
+Find your favorite one and replace above default code by it.
+
+## Command line interface
 
 Note, that `scan.py` is a command line tool in its own right.
-The UI is actually optional. One function that is not provided by the UI is
-
-```
-$ python3 scan.py --list
-
-Chicony USB2.0 Camera: IR Camer: v4l:/dev/video2
-Chicony USB2.0 Camera: Chicony : v4l:/dev/video0
-ET-4850 Series: escl:https://192.168.178.130:443
-PID: epson2:net:192.168.178.130
-EPSON ET-4850 Series: airscan:e0:EPSON ET-4850 Series
-```
-
-It is yet a **TODO** to improve this output and make it a feature of the UI.
-However, the scanner code comes after the name and the first colon.
+The UI is actually optional.
 
 ## Running the program
 
-After all is set up, run the program:
+After all has been set up, run the program:
 
 ```
 (Py313)$ python3 scan_ui.py
