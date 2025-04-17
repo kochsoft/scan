@@ -24,6 +24,7 @@ Literature:
     https://archlinux.org/packages/extra/x86_64/sane-airscan/
     Airscan driver. On my own system (Epson ET-4850) this enabled the use of ADF (Automatic Document Feed) scanning.
 """
+import re
 import os
 import sys
 import logging
@@ -31,8 +32,11 @@ import argparse
 from enum import Enum
 from pathlib import Path
 from argparse import RawTextHelpFormatter
-from typing import Optional, List, Dict, Tuple, Callable
+from typing import Optional, Union, List, Dict, Tuple, Callable, Iterable, Any
+from numbers import Number
 from math import log, floor
+
+import PIL.Image
 import sane
 import _sane
 from PIL.Image import Image
@@ -179,7 +183,7 @@ class Scan:
             self.scan(scan_tp)
             if self.images and arguments.pfname_out:
                 self.print(f"Attempting to write {len(self.images)} images to file: '{arguments.pfname_out}'.")
-                self.save_images(arguments.pfname_out, self.images, tp=self.format_output, enforce_A4=self.enforce_A4)
+                self.save_images(arguments.pfname_out, self.images, dpi=arguments.dpi, tp=self.format_output, enforce_A4=self.enforce_A4)
             else:
                 (self.print(f"Failure to scan any images."))
         else:
@@ -201,32 +205,61 @@ class Scan:
         self.cb_print(msg)
 
     @staticmethod
-    def convert_to_A4(im_input: Image) -> Optional[Image]:
+    def dpi2tuple(dpi: Optional[Union[Number, Tuple[Number, Number]]] = None, *, min_dpi=0.01) -> Tuple[Number, Number]:
+        """Converts a rather general expression into a 2-tuple of numbers >=min_dpi. Intended as (dpi_x, dpi_y)."""
+        if not dpi:
+            dpi = defaults['dpi']
+        if isinstance(dpi, str):
+            dpi = re.sub(r'[)\]]\s*$', '', re.sub(r'^\s*[[(]','',dpi))
+            dpi = tuple(float(d) for d in dpi.split(',')) if ',' in dpi else float(dpi)
+        if isinstance(dpi, Number):
+            dpi = dpi, dpi
+        if isinstance(dpi, Iterable) and not isinstance(dpi, tuple):
+            dpi = tuple(dpi)
+        return max(min_dpi, dpi[0]), max(min_dpi, dpi[1])
+
+    @staticmethod
+    def convert_to_A4(im_input: Image, *, dpi: Optional[Any] = None, stretch_content: bool = False,
+                      bg_color: Tuple[int,int,int] = (255,255,255)) -> Optional[Image]:
         """:param im_input: Input Image.
+        :param dpi: dpi value. If not given the images intrinsic value will be used. If not present, falling back to default.
+        :param stretch_content: If True the image will be stretched to fill the entire A4 canvas. Else it will merely be pasted.
+        :param bg_color: Only relevant if stretch_content == False. Background color for padded area as RGB in {0,255}^3.
         :returns a new image that has been up-scaled to match A4 format.
         Note: Google tells me, DIN A4 is 210 mm x 297 mm (8.27 in x 11.69 in)."""
         # https://stackoverflow.com/questions/27271138/python-pil-pillow-pad-image-to-desired-size-eg-a4
-        if 'dpi' not in im_input.info:
-            im_input.info['dpi'] = defaults['dpi'], defaults['dpi']
+        if ('dpi' not in im_input.info) or (dpi is not None):
+            im_input.info['dpi'] = Scan.dpi2tuple(defaults['dpi'] if dpi is None else dpi)
         res_xy_input = im_input.info['dpi']
         dim_A4_px = int(res_xy_input[0] * 8.27), int(res_xy_input[1] * 11.69)
-        im_out = im_input.copy().resize(dim_A4_px)
-        im_out = im_out.resize(dim_A4_px)
-        # a4im.paste(im, im.getbbox())
+        im_out = im_input.copy()
+        if stretch_content:
+            im_out = im_out.resize(dim_A4_px)
+        else:
+            a4im = PIL.Image.new('RGB', dim_A4_px, bg_color)
+            a4im.paste(im_out, im_out.getbbox())  # Not centered, top-left corner
+            im_out = a4im
         return im_out
 
     @staticmethod
-    def save_images(pfname: str, images: List[Image], *, tp: E_OutputType = E_OutputType.OT_PDF, enforce_A4: bool = False, seascape = False) -> int:
+    def save_images(pfname: str, images: List[Image], *, tp: E_OutputType = E_OutputType.OT_PDF,
+                    dpi: Optional[Union[Number, Tuple[Number, Number]]] = None, enforce_A4: bool = False, seascape = False) -> int:
         if not images:
             _log.warning(f"Failure to write target file '{pfname}': Given image list is empty.")
             return 1
         if not pfname:
             _log.warning(f"Failure to write {len(images)} to target file with empty fname.")
             return 2
+        dpi = Scan.dpi2tuple(dpi)
+        if not dpi:
+            dpi = defaults['dpi']
+        if isinstance(dpi, Number):
+            dpi = dpi, dpi
+        dpi = (max(0.01, d) for d in dpi)
         if enforce_A4:
             images_A4 = list()  # type: List[Image]
             for img in images:
-                images_A4.append(Scan.convert_to_A4(img))
+                images_A4.append(Scan.convert_to_A4(img, dpi=dpi))
             images = images_A4
         if seascape:
             images_seascape = list()  # type: List[Image]
@@ -235,7 +268,7 @@ class Scan:
             images = images_seascape
         if len(images) > 1:
             if tp == E_OutputType.OT_PDF:
-                images[0].save(pfname, tp.to_format(), dpi=(defaults['dpi'],defaults['dpi']), save_all=True, append_images=images[1:])
+                images[0].save(pfname, tp.to_format(), dpi=dpi, save_all=True, append_images=images[1:])
             else:
                 # [Note: PNG does not support multi-page documents. Write enumerated individual files instead.]
                 n_digits = floor(log(len(images),10)) + 1
@@ -243,9 +276,9 @@ class Scan:
                     pname = Path(pfname).parent
                     fname = Path(pfname).name
                     pfn = Path(pname).joinpath(f'{j:0{n_digits}d}_{fname}')
-                    images[j].save(pfn, tp.to_format(), dpi=(defaults['dpi'], defaults['dpi']))
+                    images[j].save(pfn, tp.to_format(), dpi=dpi)
         else:
-            images[0].save(pfname, tp.to_format(), dpi=(defaults['dpi'],defaults['dpi']))
+            images[0].save(pfname, tp.to_format(), dpi=dpi)
         return 0
 
     def scan_stop(self, code: Optional[str] = None):
@@ -326,11 +359,11 @@ $ python3 scan_ui.py"""
         parser.add_argument('--list', action='store_true', help="Identify all available devices and print the list.")
         parser.add_argument('--dev', type=str, help="At least part of a device name. From known devices will use the "+\
                             f"first one that fits. If none is given, default '{defaults['code']}' will be used.", default=defaults['code'])
+        parser.add_argument('--dpi', type=str, help=f"Either one or two dpi numbers for dpi_x and dpi_y. Default: {defaults['dpi']}", default=str(defaults['dpi']))
         parser.add_argument('--png', action='store_true', help='Produce a set of png graphics rather than a comprehensive pdf file.')
         parser.add_argument('--a4', action='store_true', help="Enforce A4 format.")
         group = parser.add_mutually_exclusive_group()
         group.add_argument('--scan', action='store_true', help='Do a single flatbed scan.')
-        #group.add_argument('--scans', action='store_true', help='Do multiple single flatbed scans.')
         group.add_argument('--multi', action='store_true', help='Do an Automatic Document Feeder (ADF) scan.')
         parser.add_argument('pfname_out', nargs='?', type=str, help="Target pfname for scanner output.", default=defaults['pfname_out'])
         parsed = parser.parse_args(args)
