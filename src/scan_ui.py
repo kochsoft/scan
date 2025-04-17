@@ -24,6 +24,7 @@ from threading import Thread
 from idlelib.tooltip import Hovertip
 
 import PIL.Image
+import sane
 from PIL import Image, ImageTk
 
 from scan import *
@@ -161,6 +162,11 @@ class ScanGui:
             except (AttributeError, IndexError, ValueError):
                 image = self.image_empty.copy()
                 is_empty = True
+        if not is_empty:
+            if bool(self.var_check_A4.get()):
+                image = Scan.convert_to_A4(image)
+            if bool(self.var_check_seascape.get()):
+                image = image.rotate(90, expand=True)
         sz_widget = self.label_preview.winfo_width(), self.label_preview.winfo_height()
         sz_image = image.size
         if sz_widget[1] > 1 and sz_image[1] > 1:
@@ -331,9 +337,9 @@ class ScanGui:
             return
         def t_init_scan_object(ui):
             ui.scan = Scan(cb_print=self.print, cb_init=ui.cb_init)
-        self.thread_init = self.call_threaded(t_init_scan_object, (self,))
         self.enable_gui(False)
         self.update_previews()
+        self.thread_init = self.call_threaded(t_init_scan_object, (self,))
 
     def threaded_initialize_scan_action(self, tp_: E_ScanType) -> Thread:
         def t_init_scan_action(ui, tp: E_ScanType):
@@ -417,6 +423,8 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         seascape = bool(self.var_check_seascape.get())
         files = [('PDF', '*.pdf'), ('png', '*.png')]
         pfname_out = tk.filedialog.asksaveasfilename(filetypes=files, title=f'Save {len(self.scan.images)} images as document(s)', defaultextension='.pdf')
+        if not pfname_out:
+            return
         tp = E_OutputType.OT_PNG if pfname_out.lower().endswith('png') else E_OutputType.OT_PDF
         success = 'Failure to save' if self.scan.save_images(pfname_out, self.scan.images, tp=tp, enforce_A4=force_A4, seascape=seascape) else 'Successfully saved '
         self.print(f"{success} {len(self.scan.images)} images, using base pfname '{pfname_out}'.")
@@ -487,6 +495,8 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.root = tk.Tk()
         self.root.title("Scan")
         self.root.geometry('640x480')
+        # [Note: 'clicking x to close' only calls .destroy() on the widget. '.quit' quits the application properly.]
+        self.root.protocol('WM_DELETE_WINDOW', self.root.quit)
         self.icon_logo = tk.PhotoImage(file=str(pfname_png_single))
         self.icon_single = tk.PhotoImage(file=str(pfname_png_single))
         self.icon_multi = tk.PhotoImage(file=str(pfname_png_multi))
@@ -505,10 +515,14 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
 
         menu_files = tk.Menu(self.menu, tearoff=0)
         self.menu.add_cascade(label='File', menu=menu_files)
-        menu_files.add_command(label='Delete Image Stack', command=self.delete_image_stack)
-        menu_files.add_command(label='Refresh Devices', command=self.refresh_devices)
+        menu_files.add_command(label='Save All ...', command=self.save)
         menu_files.add_separator()
         menu_files.add_command(label='Exit', command=self.root.quit)
+
+        menu_tools = tk.Menu(self.menu, tearoff=0)
+        self.menu.add_cascade(label='Tools', menu=menu_tools)
+        menu_tools.add_command(label='Delete Image Stack', command=self.delete_image_stack)
+        menu_tools.add_command(label='Refresh Devices', command=self.refresh_devices)
 
         menu_help = tk.Menu(self.menu, tearoff=0)
         self.menu.add_cascade(label='Help', menu=menu_help)
@@ -549,12 +563,12 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         Hovertip(self.combo_device, 'Once initialized, select the scanning device intended for usage.')
 
         self.var_check_seascape = tk.IntVar()
-        self.check_seascape = tk.Checkbutton(self.tab1, anchor=tk.W, text='Seascape', variable=self.var_check_seascape)
+        self.check_seascape = tk.Checkbutton(self.tab1, anchor=tk.W, text='Seascape', variable=self.var_check_seascape, command=self.update_preview_image)
         self.check_seascape.grid(row=0, column=0, sticky='ew')
         Hovertip(self.check_seascape, 'Normally files will be saved landscape (long edge is vertical). Check this to get seascape.')
 
         self.var_check_A4 = tk.IntVar()
-        self.check_A4 = tk.Checkbutton(self.tab1, anchor=tk.W, text='Force A4', variable=self.var_check_A4)
+        self.check_A4 = tk.Checkbutton(self.tab1, anchor=tk.W, text='Force A4', variable=self.var_check_A4, command=self.update_preview_image)
         self.check_A4.grid(row=0, column=1, sticky='ew')
         Hovertip(self.check_A4, 'If checked A4 image size will be enforced. This usually is unnecessary.')
 
@@ -610,4 +624,6 @@ if __name__ == '__main__':
                      "'threaded' is needed for this UI. The command line tool 'scan.py' should still work though.")
     else:
         ScanGui()
-    print("Done.")
+    Scan.close_all()
+    sane.exit()
+    print("\nDone.")

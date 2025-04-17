@@ -2,13 +2,19 @@
 
 A UI frontend for the **Sane** library.
 
-Aiming at **ease of use** for scanning, both from flatbed and automatic
+## About
+
+This project aims at **ease of use** for scanning, both from flatbed and automatic
 document feeder, and, as a side effect, even some cameras.
 
 A proper wiki page is yet a **ToDo**. However, at this time at least some
 screenshots are available at
 
 https://github.com/kochsoft/scan/tree/main/doc/gallery
+
+Right of the bat: This project employs the **Sane** library, in order to access
+scanning devices from the computer. As far as I can judge this tool is for
+**Linux-like systems only**: http://www.sane-project.org/sane-support.html
 
 ## Why is it?
 

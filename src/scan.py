@@ -20,6 +20,9 @@ Literature:
     https://stackoverflow.com/questions/27327513/create-pdf-from-a-list-of-images
 [4] Save an Image as A4 in size.
     https://stackoverflow.com/questions/27271138/python-pil-pillow-pad-image-to-desired-size-eg-a4
+[5] https://github.com/alexpevzner/sane-airscan
+    https://archlinux.org/packages/extra/x86_64/sane-airscan/
+    Airscan driver. On my own system (Epson ET-4850) this enabled the use of ADF (Automatic Document Feed) scanning.
 """
 import os
 import sys
@@ -217,6 +220,9 @@ class Scan:
         if not images:
             _log.warning(f"Failure to write target file '{pfname}': Given image list is empty.")
             return 1
+        if not pfname:
+            _log.warning(f"Failure to write {len(images)} to target file with empty fname.")
+            return 2
         if enforce_A4:
             images_A4 = list()  # type: List[Image]
             for img in images:
@@ -231,7 +237,7 @@ class Scan:
             if tp == E_OutputType.OT_PDF:
                 images[0].save(pfname, tp.to_format(), dpi=(defaults['dpi'],defaults['dpi']), save_all=True, append_images=images[1:])
             else:
-                # [Note: PNG does not support multi-page documents.]
+                # [Note: PNG does not support multi-page documents. Write enumerated individual files instead.]
                 n_digits = floor(log(len(images),10)) + 1
                 for j in range(len(images)):
                     pname = Path(pfname).parent
@@ -333,5 +339,6 @@ $ python3 scan_ui.py"""
 
 if __name__ == '__main__':
     scanner = Scan()
-    scanner.close_all()
-    print("Done.")
+    Scan.close_all()
+    sane.exit()
+    print("\nDone.")
