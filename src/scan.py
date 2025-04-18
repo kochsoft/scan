@@ -45,7 +45,7 @@ from PIL.Image import Image
 # Default values for some config parameters. Adjust to your own needs.
 defaults = {
     # Target device identifier. Use --list to get options. 'dev' keys are the first entries in each device tuple. E.g., 'v4l:/dev/video2'.
-    'code': 'airscan:e0:EPSON ET-4850 Series',
+    'code': 'airscan', #'airscan:e0:EPSON ET-4850 Series',
     # Dots per inch.
     'dpi': 72,
     'pfname_out': os.path.expanduser(r'~/scan.pdf')
@@ -200,7 +200,8 @@ class Scan:
             self.scan(scan_tp)
             if self.images and arguments.pfname_out:
                 self.print(f"Attempting to write {len(self.images)} images to file: '{arguments.pfname_out}'.")
-                self.save_images(arguments.pfname_out, self.images, dpi=arguments.dpi, tp=self.format_output, enforce_A4=E_Status_A4.from_str(arguments.a4))
+                self.save_images(arguments.pfname_out, self.images, dpi=arguments.dpi, tp=self.format_output,
+                                 enforce_A4=E_Status_A4.from_str(arguments.a4), landscape=True if arguments.landscape else False)
             else:
                 (self.print(f"Failure to scan any images."))
         else:
@@ -260,7 +261,7 @@ class Scan:
 
     @staticmethod
     def save_images(pfname: str, images: List[Image], *, tp: E_OutputType = E_OutputType.OT_PDF,
-                    dpi: Optional[Union[Number, Tuple[Number, Number]]] = None, enforce_A4: E_Status_A4 = E_Status_A4.SA_NONE, seascape = False) -> int:
+                    dpi: Optional[Union[Number, Tuple[Number, Number]]] = None, enforce_A4: E_Status_A4 = E_Status_A4.SA_NONE, landscape = False) -> int:
         if not images:
             _log.warning(f"Failure to write target file '{pfname}': Given image list is empty.")
             return 1
@@ -273,11 +274,11 @@ class Scan:
             for img in images:
                 images_A4.append(Scan.convert_to_A4(img, dpi=dpi, stretch_content=(enforce_A4==E_Status_A4.SA_STRETCH)))
             images = images_A4
-        if seascape:
-            images_seascape = list()  # type: List[Image]
+        if landscape:
+            images_landscape = list()  # type: List[Image]
             for img in images:
-                images_seascape.append(img.rotate(90, expand=True))
-            images = images_seascape
+                images_landscape.append(img.rotate(90, expand=True))
+            images = images_landscape
         if len(images) > 1:
             if tp == E_OutputType.OT_PDF:
                 images[0].save(pfname, tp.to_format(), dpi=dpi, save_all=True, append_images=images[1:])
@@ -337,7 +338,7 @@ class Scan:
         if not device:
             self.print(f"Device '{code}' not available.")
             return images
-        device.source = "Flatbed"
+        # device.source = 'Flatbed'
         try:
             image = device.scan()
             images.append(image)
@@ -366,7 +367,7 @@ class Scan:
             args = sys.argv[1:]
         desc = """Smallish UI project for offering the most common scanner functions of an Epson ET 4850 device."""
         epilog = f"""Example call:
-$ python3 scan_ui.py"""
+$ python3 scan.py --list"""
         parser = argparse.ArgumentParser(prog='scan.py', description=desc, epilog=epilog, formatter_class=RawTextHelpFormatter)
         parser.add_argument('--list', action='store_true', help="Identify all available devices and print the list.")
         parser.add_argument('--dev', type=str, help="At least part of a device name. From known devices will use the "+\
@@ -375,6 +376,7 @@ $ python3 scan_ui.py"""
         parser.add_argument('--png', action='store_true', help='Produce a set of png graphics rather than a comprehensive pdf file.')
         parser.add_argument('--a4', type=str, help="Enforce A4 format. Give 'stretch' or 'pad' for stretching or merely pasting the original image content.", default='none')
         group = parser.add_mutually_exclusive_group()
+        group.add_argument('--landscape', action='store_true', help='Do a 90 degree rotation for landscape orientation (as opposed to portrait, AKA seascape).')
         group.add_argument('--scan', action='store_true', help='Do a single flatbed scan.')
         group.add_argument('--multi', action='store_true', help='Do an Automatic Document Feeder (ADF) scan.')
         parser.add_argument('pfname_out', nargs='?', type=str, help="Target pfname for scanner output.", default=defaults['pfname_out'])
@@ -386,4 +388,3 @@ if __name__ == '__main__':
     scanner = Scan()
     Scan.close_all()
     sane.exit()
-    print("\nDone.")

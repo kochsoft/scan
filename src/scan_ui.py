@@ -90,8 +90,8 @@ class ScanGui:
 
         self.var_combo_device = None  # type: Optional[tk.StringVar]
         self.combo_device = None  # type: Optional[ttk.Combobox]
-        self.var_check_seascape = None  # type: Optional[tk.IntVar]
-        self.check_seascape = None  # type: Optional[tk.Checkbutton]
+        self.var_check_landscape = None  # type: Optional[tk.IntVar]
+        self.check_landscape = None  # type: Optional[tk.Checkbutton]
         self.var_combo_A4 = None  # type: Optional[tk.StringVar]
         self.combo_A4 = None  # type: Optional[ttk.Combobox]
 
@@ -172,7 +172,7 @@ class ScanGui:
             need_A4 = self.status_A4
             if need_A4 != E_Status_A4.SA_NONE:
                 image = Scan.convert_to_A4(image, stretch_content=(need_A4==E_Status_A4.SA_STRETCH))
-            if bool(self.var_check_seascape.get()):
+            if bool(self.var_check_landscape.get()):
                 image = image.rotate(90, expand=True)
         sz_widget = self.label_preview.winfo_width(), self.label_preview.winfo_height()
         sz_image = image.size
@@ -431,13 +431,13 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         if not self.scan.images:
             self.print("No scanned images available for saving.")
             return
-        seascape = bool(self.var_check_seascape.get())
+        landscape = bool(self.var_check_landscape.get())
         files = [('PDF', '*.pdf'), ('png', '*.png')]
         pfname_out = tk.filedialog.asksaveasfilename(filetypes=files, title=f'Save {len(self.scan.images)} images as document(s)', defaultextension='.pdf')
         if not pfname_out:
             return
         tp = E_OutputType.OT_PNG if pfname_out.lower().endswith('png') else E_OutputType.OT_PDF
-        success = 'Failure to save' if self.scan.save_images(pfname_out, self.scan.images, tp=tp, enforce_A4=self.status_A4, seascape=seascape) else 'Successfully saved '
+        success = 'Failure to save' if self.scan.save_images(pfname_out, self.scan.images, tp=tp, enforce_A4=self.status_A4, landscape=landscape) else 'Successfully saved '
         self.print(f"{success} {len(self.scan.images)} images, using base pfname '{pfname_out}'.")
 
     def up_image(self):
@@ -498,7 +498,7 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
             target.config(state='disabled')
 
     def enable_gui(self, enable: bool):
-        elts = [self.check_seascape, self.combo_A4, self.button_scan_fb, self.button_scan_adf, self.button_save]
+        elts = [self.check_landscape, self.combo_A4, self.button_scan_fb, self.button_scan_adf, self.button_save]
         for widget in elts:
             if enable:
                 widget.config(state='normal')
@@ -577,10 +577,10 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.combo_device.current(0)
         Hovertip(self.combo_device, 'Once initialized, select the scanning device intended for usage.')
 
-        self.var_check_seascape = tk.IntVar()
-        self.check_seascape = tk.Checkbutton(self.tab1, anchor=tk.W, text='Seascape', variable=self.var_check_seascape, command=self.update_preview_image)
-        self.check_seascape.grid(row=0, column=0, sticky='ew')
-        Hovertip(self.check_seascape, 'Normally files will be saved landscape (long edge is vertical). Check this to get seascape.')
+        self.var_check_landscape = tk.IntVar()
+        self.check_landscape = tk.Checkbutton(self.tab1, anchor=tk.W, text='Landscape', variable=self.var_check_landscape, command=self.update_preview_image)
+        self.check_landscape.grid(row=0, column=0, sticky='ew')
+        Hovertip(self.check_landscape, 'Normally files will be saved seascape (AKA portrait, i.e., long edge is vertical). Check this to get landscape mode.')
 
         self.var_combo_A4 = tk.StringVar()
         self.combo_A4 = ttk.Combobox(self.tab1, textvariable=self.var_combo_A4)
