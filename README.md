@@ -12,8 +12,8 @@ screenshots are available at
 
 https://github.com/kochsoft/scan/tree/main/doc/gallery
 
-Right of the bat: This project employs the **Sane** library, in order to access
-scanning devices from the computer. As far as I can judge this tool is for
+Right off the bat: This project employs the **Sane** library, in order to access
+scanning devices from the computer. As far as I can judge, this tool is for
 **Linux-like systems only**: http://www.sane-project.org/sane-support.html
 
 ## Why is it?
@@ -117,7 +117,9 @@ After all has been set up, run the program:
 ```
 (Py313)$ python3 scan.py --help
 
-usage: scan.py [-h] [--list] [--dev DEV] [--png] [--a4] [--scan | --multi] [pfname_out]
+usage: scan.py [-h] [--list] [--dev DEV] [--dpi DPI] [--png] [--a4 A4]
+               [--scan | --multi]
+               [pfname_out]
 
 Smallish UI project for offering the most common scanner functions of an Epson ET 4850 device.
 
@@ -128,11 +130,15 @@ options:
   -h, --help  show this help message and exit
   --list      Identify all available devices and print the list.
   --dev DEV   At least part of a device name. From known devices will use the first one that fits. If none is given, default 'airscan:e0:EPSON ET-4850 Series' will be used.
+  --dpi DPI   Either one or two dpi numbers for dpi_x and dpi_y. Default: 72
   --png       Produce a set of png graphics rather than a comprehensive pdf file.
-  --a4        Enforce A4 format.
+  --a4 A4     Enforce A4 format. Give 'stretch' or 'pad' for stretching or merely pasting the original image content.
   --scan      Do a single flatbed scan.
   --multi     Do an Automatic Document Feeder (ADF) scan.
 
 Example call:
-$ python3 scan_ui.py
+$ python3 scan.py
 ```
+## Known Bugs
+
+* Enforce A4 seems to mix up resolution for large scanned images.
