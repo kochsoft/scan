@@ -49,7 +49,7 @@ At the top of `scan.py` is a short section **config.sys** where some
 default values can be set to your needs.
 
 Most notably, the default scanner `code`. My own scanner is embedded in
-an Epson ET-4850 printer and is set as the default default in the ffile:
+an Epson ET-4850 printer and is set as the default default in the file:
 
 ```
 airscan:e0:EPSON ET-4850 Series
@@ -59,6 +59,45 @@ Upon starting the `scan_ui.py`, it will first look for available scanners
 on your system. At the top of the main tab there is a combobox where the
 scanners that have been identified are noted in form of their device codes.
 Find your favorite one and replace above default code by it.
+
+### Required Pacakges -- Arch
+
+**Disclaimer**: This program has been developed on an Arch system, where already
+quite a few packages had been installed. I attempted to use `pacman -Q | grep -i ..`
+and some guess-work to determine which packages were really used.
+It is possible that the below list is incomplete.
+
+**requirements.txt**:
+
+```
+# Python bindings for the sane library.
+python-sane
+# Image processing.
+Pillow
+```
+ 
+* `colord-sane`: Colored sane support
+* `sane`: The scanner library used.
+* `sane-airscan`: Not strictly required. But (at least for Epson ET4850) offers driver-less devices with improved features like ADF (Automatic Document Feeder).
+* `python`: Python 3 interpreter.
+
+### Required Packages  -- Debian
+
+* `python-tk`: tkinter, the GUI system.
+* `python-pillow`: PIL library. Holding the Image class used by this project.
+* `idle`: Some testing suite? Seems to be a dependency of `python-pillow`.
+* `python3-pil-imagetk`: Offers turning pillow images into tk photos. For previews.
+* `python-sane`: The python-binding library for sane used by this project.
+* `python3`: The python 3 interpreter. At the time of writing this was 3.11.
+
+Very useful is `sane-airscan` for 'driver-less access'. Not quite sure, what
+that really means, but it allows additional devices with, in my case,
+the option of actually using the ADF (automatic document feeder).
+
+### Required Packages -- Windows 11
+
+I was unable to bring Scan to Windows 11. Not even when using WSL 2
+(Windows Subsystem for Linux). Sane appears not have been made for this.
 
 ## Command line interface
 

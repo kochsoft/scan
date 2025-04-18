@@ -1,0 +1,5 @@
+# Python bindings for the sane library.
+python-sane
+# Image processing.
+Pillow
+

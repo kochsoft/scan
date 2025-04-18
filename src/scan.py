@@ -47,7 +47,7 @@ defaults = {
     # Target device identifier. Use --list to get options. 'dev' keys are the first entries in each device tuple. E.g., 'v4l:/dev/video2'.
     'code': 'airscan:e0:EPSON ET-4850 Series',
     # Dots per inch.
-    'dpi': 72,
+    'dpi': 7,
     'pfname_out': os.path.expanduser(r'~/scan.pdf')
 }
 # < ------------------------------------------------------------------
