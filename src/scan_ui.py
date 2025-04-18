@@ -414,6 +414,7 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         if self.thread_scan and self.thread_scan.is_alive():
             if self.ask_ok('Do you want to cancel the ongoing flatbed scan process?', 'Cancel flatbed scan'):
                 self.scan.scan_stop(self.var_combo_device.get())
+                self.enable_stop(to_stop=False, enable=True, single_scan=True)
         else:
             self.thread_scan = self.threaded_initialize_scan_action(E_ScanType.ST_SINGLE_FLATBED)
 
@@ -422,6 +423,7 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         if self.thread_scan and self.thread_scan.is_alive():
             if self.ask_ok('Do you want to cancel the ongoing ADF scan process?', 'Cancel ADF scan'):
                 self.scan.scan_stop(self.var_combo_device.get())
+                self.enable_stop(to_stop=False, enable=True, single_scan=False)
         else:
             self.thread_scan = self.threaded_initialize_scan_action(E_ScanType.ST_MULTI_ADF)
 

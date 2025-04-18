@@ -300,9 +300,10 @@ class Scan:
         device = Scan.data_devices[code] if code in Scan.data_devices else None  # type: Optional[sane.SaneDev]
         if device:
             self.print(f"Canceling scan from device '{code}'.")
-            device.close()
-            if code in Scan.data_devices:
-                del Scan.data_devices[code]
+            device.cancel()
+            #device.close()
+            #if code in Scan.data_devices:
+            #    del Scan.data_devices[code]
         else:
             self.print(f"Canceling scan from device '{code}' is unnecessary. Device does not seem to exist.")
 
