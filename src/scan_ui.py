@@ -15,7 +15,6 @@ Literature:
     https://www.activestate.com/resources/quick-reads/how-to-add-images-in-tkinter/
 """
 
-import re
 import time
 import tkinter as tk
 import tkinter.filedialog
@@ -24,7 +23,6 @@ from threading import Thread
 from idlelib.tooltip import Hovertip
 
 import PIL.Image
-import sane
 from PIL import Image, ImageTk
 
 from scan import *
@@ -93,9 +91,9 @@ class ScanGui:
         self.var_combo_device = None  # type: Optional[tk.StringVar]
         self.combo_device = None  # type: Optional[ttk.Combobox]
         self.var_check_seascape = None  # type: Optional[tk.IntVar]
-        self.var_check_A4 = None  # type: Optional[tk.IntVar]
         self.check_seascape = None  # type: Optional[tk.Checkbutton]
-        self.check_A4 = None  # type: Optional[tk.Checkbutton]
+        self.var_combo_A4 = None  # type: Optional[tk.StringVar]
+        self.combo_A4 = None  # type: Optional[ttk.Combobox]
 
         self.ta_log = None  # type: Optional[tk.Text]
 
@@ -153,6 +151,14 @@ class ScanGui:
             text = re.sub('[0-9]+', str(val), str(self.label_pages.cget('text')))
             self.label_pages.config(text=text)
 
+    @property
+    def status_A4(self) -> E_Status_A4:
+        val = self.combo_A4.current()
+        try:
+            return E_Status_A4(val)
+        except ValueError:
+            return E_Status_A4.SA_NONE
+
     def update_preview_image(self, image: Optional[Image] = None):
         is_empty = False
         if image is None:
@@ -163,8 +169,9 @@ class ScanGui:
                 image = self.image_empty.copy()
                 is_empty = True
         if not is_empty:
-            if bool(self.var_check_A4.get()):
-                image = Scan.convert_to_A4(image)
+            need_A4 = self.status_A4
+            if need_A4 != E_Status_A4.SA_NONE:
+                image = Scan.convert_to_A4(image, stretch_content=(need_A4==E_Status_A4.SA_STRETCH))
             if bool(self.var_check_seascape.get()):
                 image = image.rotate(90, expand=True)
         sz_widget = self.label_preview.winfo_width(), self.label_preview.winfo_height()
@@ -187,6 +194,9 @@ class ScanGui:
                 self.image_preview = image
         self.photo_preview = ImageTk.PhotoImage(self.image_preview) if self.image_preview else self.icon_empty
         self.label_preview['image'] = self.photo_preview
+
+    def handler_update_preview_image(self, event):
+        self.update_preview_image()
 
     def show_preview(self, val: Optional[int] = None):
         def drop_image():
@@ -363,6 +373,8 @@ class ScanGui:
             return
         if self.ask_ok('This will reset all device elements and reinitialize them.', 'Refresh all devices'):
             Scan.reset()
+            self.enable_stop(to_stop=False, enable=False, single_scan=True)
+            self.enable_stop(to_stop=False, enable=False, single_scan=False)
             self.thread_init = None
             self.thread_scan = None
             self.scan = None
@@ -419,14 +431,13 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         if not self.scan.images:
             self.print("No scanned images available for saving.")
             return
-        force_A4 = bool(self.var_check_A4.get())
         seascape = bool(self.var_check_seascape.get())
         files = [('PDF', '*.pdf'), ('png', '*.png')]
         pfname_out = tk.filedialog.asksaveasfilename(filetypes=files, title=f'Save {len(self.scan.images)} images as document(s)', defaultextension='.pdf')
         if not pfname_out:
             return
         tp = E_OutputType.OT_PNG if pfname_out.lower().endswith('png') else E_OutputType.OT_PDF
-        success = 'Failure to save' if self.scan.save_images(pfname_out, self.scan.images, tp=tp, enforce_A4=force_A4, seascape=seascape) else 'Successfully saved '
+        success = 'Failure to save' if self.scan.save_images(pfname_out, self.scan.images, tp=tp, enforce_A4=self.status_A4, seascape=seascape) else 'Successfully saved '
         self.print(f"{success} {len(self.scan.images)} images, using base pfname '{pfname_out}'.")
 
     def up_image(self):
@@ -471,6 +482,10 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.update_previews()
 
     def enable_stop(self, *, to_stop: bool, enable: bool, single_scan: bool):
+        """Modifies the scanning buttons. Enabling and/or flipping them to 'do you want to cancel'-mode.
+        :param to_stop: If True display a stop sign. Else the regular button icon.
+        :param enable: Should the button be enabled or disabled?
+        :param single_scan: Is this call concerned with the flatbed single scan or the ADF multiscan button?"""
         target = self.button_scan_fb if single_scan else self.button_scan_adf  # type: tk.Button
         icon_base = self.icon_single if single_scan else self.icon_multi  # type: tk.PhotoImage
         icon = self.icon_stop if to_stop else icon_base
@@ -483,7 +498,7 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
             target.config(state='disabled')
 
     def enable_gui(self, enable: bool):
-        elts = [self.check_seascape, self.check_A4, self.button_scan_fb, self.button_scan_adf, self.button_save]
+        elts = [self.check_seascape, self.combo_A4, self.button_scan_fb, self.button_scan_adf, self.button_save]
         for widget in elts:
             if enable:
                 widget.config(state='normal')
@@ -567,10 +582,14 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.check_seascape.grid(row=0, column=0, sticky='ew')
         Hovertip(self.check_seascape, 'Normally files will be saved landscape (long edge is vertical). Check this to get seascape.')
 
-        self.var_check_A4 = tk.IntVar()
-        self.check_A4 = tk.Checkbutton(self.tab1, anchor=tk.W, text='Force A4', variable=self.var_check_A4, command=self.update_preview_image)
-        self.check_A4.grid(row=0, column=1, sticky='ew')
-        Hovertip(self.check_A4, 'If checked A4 image size will be enforced. This usually is unnecessary.')
+        self.var_combo_A4 = tk.StringVar()
+        self.combo_A4 = ttk.Combobox(self.tab1, textvariable=self.var_combo_A4)
+        self.combo_A4.grid(row=0, column=1, sticky='ew')
+        self.combo_A4['values'] = 'force A4: none', 'force A4: padding', 'force A4: stretching'
+        self.combo_A4['state'] = 'readonly'
+        self.combo_A4.current(0)
+        self.combo_A4.bind('<<ComboboxSelected>>', self.handler_update_preview_image)
+        Hovertip(self.combo_A4, 'Enforce A4 format, either by stretching or by padding. This usually is unnecessary.')
 
         self.ta_log = tk.Text(self.tab1, height=10, width=self.width_column, state='normal', wrap=tk.WORD)
         self.ta_log.grid(row=2, column=0, columnspan=2, sticky='ewns')

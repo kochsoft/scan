@@ -84,6 +84,24 @@ class E_OutputType(Enum):
         return None
 
 
+class E_Status_A4(Enum):
+    """How to convert an image into A4"""
+    SA_NONE = 0
+    SA_PAD = 1
+    SA_STRETCH = 2
+
+    @staticmethod
+    def from_str(val: str):
+        val = val.lower()
+        if val == 'stretch':
+            return E_Status_A4.SA_STRETCH
+        elif val == 'pad':
+            return E_Status_A4.SA_PAD
+        else:
+            if val != '' and val != 'none':
+                _log.warning(f"Invalid A4 status code '{val}' encountered. Ignoring it.")
+            return E_Status_A4.SA_NONE
+
 class Scan:
     """Main class for the command line script of this project."""
     data_init = None  # type: Optional[Tuple[int,int,int,int]]
@@ -172,7 +190,6 @@ class Scan:
             sys.exit(0)
 
         self.format_output = E_OutputType.OT_PNG if arguments.png else E_OutputType.OT_PDF
-        self.enforce_A4 = arguments.a4
         self.code_hint = arguments.dev
         self.code = Scan.complete_code_hint(self.code_hint) if self.code_hint else None
         self.images = list()  # type: List[Image]
@@ -183,7 +200,7 @@ class Scan:
             self.scan(scan_tp)
             if self.images and arguments.pfname_out:
                 self.print(f"Attempting to write {len(self.images)} images to file: '{arguments.pfname_out}'.")
-                self.save_images(arguments.pfname_out, self.images, dpi=arguments.dpi, tp=self.format_output, enforce_A4=self.enforce_A4)
+                self.save_images(arguments.pfname_out, self.images, dpi=arguments.dpi, tp=self.format_output, enforce_A4=E_Status_A4.from_str(arguments.a4))
             else:
                 (self.print(f"Failure to scan any images."))
         else:
@@ -243,7 +260,7 @@ class Scan:
 
     @staticmethod
     def save_images(pfname: str, images: List[Image], *, tp: E_OutputType = E_OutputType.OT_PDF,
-                    dpi: Optional[Union[Number, Tuple[Number, Number]]] = None, enforce_A4: bool = False, seascape = False) -> int:
+                    dpi: Optional[Union[Number, Tuple[Number, Number]]] = None, enforce_A4: E_Status_A4 = E_Status_A4.SA_NONE, seascape = False) -> int:
         if not images:
             _log.warning(f"Failure to write target file '{pfname}': Given image list is empty.")
             return 1
@@ -251,15 +268,10 @@ class Scan:
             _log.warning(f"Failure to write {len(images)} to target file with empty fname.")
             return 2
         dpi = Scan.dpi2tuple(dpi)
-        if not dpi:
-            dpi = defaults['dpi']
-        if isinstance(dpi, Number):
-            dpi = dpi, dpi
-        dpi = (max(0.01, d) for d in dpi)
-        if enforce_A4:
+        if enforce_A4 != E_Status_A4.SA_NONE:
             images_A4 = list()  # type: List[Image]
             for img in images:
-                images_A4.append(Scan.convert_to_A4(img, dpi=dpi))
+                images_A4.append(Scan.convert_to_A4(img, dpi=dpi, stretch_content=(enforce_A4==E_Status_A4.SA_STRETCH)))
             images = images_A4
         if seascape:
             images_seascape = list()  # type: List[Image]
@@ -361,7 +373,7 @@ $ python3 scan_ui.py"""
                             f"first one that fits. If none is given, default '{defaults['code']}' will be used.", default=defaults['code'])
         parser.add_argument('--dpi', type=str, help=f"Either one or two dpi numbers for dpi_x and dpi_y. Default: {defaults['dpi']}", default=str(defaults['dpi']))
         parser.add_argument('--png', action='store_true', help='Produce a set of png graphics rather than a comprehensive pdf file.')
-        parser.add_argument('--a4', action='store_true', help="Enforce A4 format.")
+        parser.add_argument('--a4', type=str, help="Enforce A4 format. Give 'stretch' or 'pad' for stretching or merely pasting the original image content.", default='none')
         group = parser.add_mutually_exclusive_group()
         group.add_argument('--scan', action='store_true', help='Do a single flatbed scan.')
         group.add_argument('--multi', action='store_true', help='Do an Automatic Document Feeder (ADF) scan.')
