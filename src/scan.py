@@ -34,7 +34,7 @@ from pathlib import Path
 from argparse import RawTextHelpFormatter
 from typing import Optional, Union, List, Dict, Tuple, Callable, Iterable, Any
 from numbers import Number
-from math import log, floor
+from math import log, floor, ceil, sqrt
 
 import PIL.Image
 import sane
@@ -248,12 +248,34 @@ class Scan:
         # https://stackoverflow.com/questions/27271138/python-pil-pillow-pad-image-to-desired-size-eg-a4
         if ('dpi' not in im_input.info) or (dpi is not None):
             im_input.info['dpi'] = Scan.dpi2tuple(defaults['dpi'] if dpi is None else dpi)
-        res_xy_input = im_input.info['dpi']
-        dim_A4_px = int(res_xy_input[0] * 8.27), int(res_xy_input[1] * 11.69)
+        width_px, height_px = im_input.size
+        dpi_x, dpi_y = im_input.info['dpi']
+        width_inch = width_px / dpi_x
+        height_inch = height_px / dpi_y
         im_out = im_input.copy()
         if stretch_content:
+            # [Portrait DIN A4 aspect ratio is 1/sqrt(2).]
+            factor_x = 8.27 / width_inch
+            factor_y = 11.69 / height_inch
+            dim_A4_px = round(width_px * factor_x), round(height_px * factor_y)
             im_out = im_out.resize(dim_A4_px)
         else:
+            # [Note: The width of a DINA4 in ich (8.27) * sqrt(2) equals the height of 11.69 inches.]
+            width_is_dominant = (width_px * sqrt(2) >= height_px)
+            factor_x = 1.0
+            factor_y = 1.0
+            if width_is_dominant:
+                factor = 8.27 / width_inch
+                dim_A4_px_content = round(width_px * factor), round(height_px * factor)
+                # Now there will be a blank bar below.
+                factor_y = 11.69 * dpi_y / dim_A4_px_content[1]
+            else:
+                factor = 11.69 / height_inch
+                dim_A4_px_content = round(width_px * factor), round(height_px * factor)
+                # Now there will be a blank bar to the right.
+                factor_x = 8.27 * dpi_x / dim_A4_px_content[0]
+            im_out = im_out.resize(dim_A4_px_content)
+            dim_A4_px = round(factor_x * dim_A4_px_content[0]), round(factor_y * dim_A4_px_content[1])
             a4im = PIL.Image.new('RGB', dim_A4_px, bg_color)
             a4im.paste(im_out, im_out.getbbox())  # Not centered, top-left corner
             im_out = a4im
@@ -301,9 +323,7 @@ class Scan:
         if device:
             self.print(f"Canceling scan from device '{code}'.")
             device.cancel()
-            #device.close()
-            #if code in Scan.data_devices:
-            #    del Scan.data_devices[code]
+            #device.close(); if code in Scan.data_devices: del Scan.data_devices[code]
         else:
             self.print(f"Canceling scan from device '{code}' is unnecessary. Device does not seem to exist.")
 
