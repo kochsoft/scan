@@ -34,7 +34,7 @@ from pathlib import Path
 from argparse import RawTextHelpFormatter
 from typing import Optional, Union, List, Dict, Tuple, Callable, Iterable, Any
 from numbers import Number
-from math import log, floor, ceil, sqrt
+from math import log, floor, sqrt
 
 import PIL.Image
 import sane
@@ -306,7 +306,7 @@ class Scan:
             if tp == E_OutputType.OT_PDF:
                 images[0].save(pfname, tp.to_format(), dpi=dpi, save_all=True, append_images=images[1:])
             else:
-                # [Note: PNG does not support multi-page documents. Write enumerated individual files instead.]
+                # [Note: PNG does not support multipage documents. Write enumerated individual files instead.]
                 n_digits = floor(log(len(images),10)) + 1
                 for j in range(len(images)):
                     pname = Path(pfname).parent
@@ -327,7 +327,8 @@ class Scan:
         else:
             self.print(f"Canceling scan from device '{code}' is unnecessary. Device does not seem to exist.")
 
-    def scan_adf(self, code: Optional[str] = None, images: Optional[List[Image]] = None, *, cb_done: Optional[callable] = None) -> List[Image]:
+    def scan_adf(self, code: Optional[str] = None, images: Optional[List[Image]] = None, *,
+                 cb_done: Optional[callable] = None, cb_single_done: Optional[callable] = None) -> List[Image]:
         """Perform an ADF (Automatic Document Feeder) multi-scan and write temporary png graphics."""
         if code is None:
             code = self.code
@@ -347,6 +348,8 @@ class Scan:
             try:
                 image = device.scan()
                 images.append(image.copy())
+                if cb_single_done:
+                    cb_single_done()
             except Exception as e:
                 if str(e) == 'Document feeder out of documents':
                     self.print('Document feeder is empty.')
@@ -357,7 +360,7 @@ class Scan:
         if code in Scan.data_devices:
             del Scan.data_devices[code]
         n1 = len(self.images) - n0
-        self.print(f"Scanned {n1} new images.")
+        self.print("Scanned 1 new image." if n1 == 1 else f"Scanned {n1} new images.")
         if cb_done:
             cb_done()
         return images
@@ -372,6 +375,7 @@ class Scan:
             self.print(f"Device '{code}' not available.")
             return images
         # device.source = 'Flatbed'
+        n0 = len(images)
         Scan.data_request_stop = False
         try:
             image = device.scan()
@@ -384,6 +388,8 @@ class Scan:
         device.close()
         if code in Scan.data_devices:
             del Scan.data_devices[code]
+        n1 = len(images) - n0
+        self.print("Scanned 1 new image." if n1 == 1 else f"Scanned {n1} new images.")
         if cb_done:
             cb_done()
         return images

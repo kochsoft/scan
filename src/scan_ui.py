@@ -101,6 +101,7 @@ class ScanGui:
         self.button_scan_fb = None  # type: Optional[tk.Button]
         self.button_save = None  # type: Optional[tk.Button]
         self.label_pages = None  # type: Optional[tk.Label]
+        self.label_pages2 = None  # type: Optional[tk.Label]
 
         self.image_empty = None  # type: Optional[Image]
         self.image_preview = None  # type: Optional[Image]
@@ -150,6 +151,9 @@ class ScanGui:
         if self.label_pages:
             text = re.sub('[0-9]+', str(val), str(self.label_pages.cget('text')))
             self.label_pages.config(text=text)
+        if self.label_pages2:
+            text = re.sub('[0-9]+', str(val), str(self.label_pages2.cget('text')))
+            self.label_pages2.config(text=text)
 
     @property
     def status_A4(self) -> E_Status_A4:
@@ -273,6 +277,7 @@ class ScanGui:
         # _log.info("Initializing root bind.")
         ui.root.bind_all('<<init_complete>>', ui.handler_init)
         ui.root.bind_all('<<scan_complete>>', ui.handler_scan)
+        ui.root.bind_all('<<scan_complete_single_multi>>', ui.handler_scan_single_multi)
 
     @staticmethod
     def call_threaded(fct_thd, args4thd: Optional[tuple]=None) -> Thread:
@@ -312,6 +317,10 @@ class ScanGui:
         elif len(codes):
             self.combo_device.current(0)
 
+    def handler_scan_single_multi(self, event: tk.Event):
+        """Very special interest. Triggered every time scan_adf completed another scan."""
+        self.label_pages_number = len(self.scan.images)
+
     def handler_scan(self, event: tk.Event):
         self.enable_gui(True)
         self.enable_stop(to_stop=False, enable=True, single_scan=True)
@@ -322,6 +331,8 @@ class ScanGui:
     def cb_init(self):
         self.root.event_generate("<<init_complete>>", when='tail') #, state=123)
 
+    def cb_scan_single_multi(self):
+        self.root.event_generate("<<scan_complete_single_multi>>", when='tail')
     def cb_scan(self):
         self.root.event_generate("<<scan_complete>>", when='tail')  # , state=123)
 
@@ -357,7 +368,7 @@ class ScanGui:
             if code not in Scan.data_devices:
                 Scan.init_device(code)
             if tp == E_ScanType.ST_MULTI_ADF:
-                ui.scan.scan_adf(code=code, cb_done=ui.cb_scan)
+                ui.scan.scan_adf(code=code, cb_done=ui.cb_scan, cb_single_done=ui.cb_scan_single_multi)
             else:
                 ui.scan.scan_flatbed(code=code, cb_done=ui.cb_scan)
         self.enable_gui(False)
@@ -439,8 +450,8 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         if not pfname_out:
             return
         tp = E_OutputType.OT_PNG if pfname_out.lower().endswith('png') else E_OutputType.OT_PDF
-        success = 'Failure to save' if self.scan.save_images(pfname_out, self.scan.images, tp=tp, enforce_A4=self.status_A4, landscape=landscape) else 'Successfully saved '
-        self.print(f"{success} {len(self.scan.images)} images, using base pfname '{pfname_out}'.")
+        success = 'Failure to save' if self.scan.save_images(pfname_out, self.scan.images, tp=tp, enforce_A4=self.status_A4, landscape=landscape) else 'Successfully saved'
+        self.print(f"{success} {len(self.scan.images)} images. Using base pfname '{pfname_out}'.")
 
     def up_image(self):
         j = int(self.var_combo_index_preview.get()) - 1
@@ -485,7 +496,7 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
 
     def enable_stop(self, *, to_stop: bool, enable: bool, single_scan: bool):
         """Modifies the scanning buttons. Enabling and/or flipping them to 'do you want to cancel'-mode.
-        :param to_stop: If True display a stop sign. Else the regular button icon.
+        :param to_stop: If True, display a stop sign. Else the regular button icon.
         :param enable: Should the button be enabled or disabled?
         :param single_scan: Is this call concerned with the flatbed single scan or the ADF multiscan button?"""
         target = self.button_scan_fb if single_scan else self.button_scan_adf  # type: tk.Button
@@ -546,9 +557,7 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         menu_help.add_command(label='About ...', command=self.mb_about)
         # < ----------------------------------------------------------
         # > Tabs. ----------------------------------------------------
-        # style = ttk.Style(self.root)
-        # style.configure('lefttab.TNotebook', tabposition='ne')
-        self.tabControl = ttk.Notebook(self.root) #, style='lefttab.TNotebook')
+        self.tabControl = ttk.Notebook(self.root)
 
         self.tab1 = ttk.Frame(self.tabControl)
         self.tab1.columnconfigure(0, weight=1)
@@ -637,6 +646,11 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.button_delete_image = tk.Button(self.tab2, image=self.icon_delete, command=self.delete_image)
         self.button_delete_image.grid(row=1, column=1, rowspan=3, sticky='nsew')
         Hovertip(self.button_delete_image, 'Delete the currently visible image.')
+
+        self.label_pages2 = tk.Label(self.tab2, text='Current number of pages: 0', relief=tk.RIDGE, anchor=tk.W)
+        self.label_pages2.grid(row=4, column=0, columnspan=2, sticky='ew')
+        Hovertip(self.label_pages2, 'If a document were to be saved now it should receive this many pages.')
+
         # < ----------------------------------------------------------
 
 if __name__ == '__main__':
