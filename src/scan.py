@@ -104,6 +104,7 @@ class E_Status_A4(Enum):
 
 class Scan:
     """Main class for the command line script of this project."""
+    data_request_stop = False  # type: bool
     data_init = None  # type: Optional[Tuple[int,int,int,int]]
     data_devices_info = list()  # type: List[Tuple[str,str,str,str]]
     data_devices = dict()  # type: Dict[str, sane.SaneDev]
@@ -321,9 +322,8 @@ class Scan:
             code = self.code
         device = Scan.data_devices[code] if code in Scan.data_devices else None  # type: Optional[sane.SaneDev]
         if device:
-            self.print(f"Canceling scan from device '{code}'.")
-            device.cancel()
-            #device.close(); if code in Scan.data_devices: del Scan.data_devices[code]
+            self.print(f"Requesting stop of device '{code}'.")
+            Scan.data_request_stop = True
         else:
             self.print(f"Canceling scan from device '{code}' is unnecessary. Device does not seem to exist.")
 
@@ -338,14 +338,26 @@ class Scan:
             self.print(f"Device '{code}' not available.")
             return images
         device.source = "ADF"
-        try:
-            for image in device.multi_scan():
+        n0 = len(self.images)
+        Scan.data_request_stop = False
+        while True:
+            if Scan.data_request_stop:
+                self.print("Stop request received. Breaking acquisition loop.")
+                break
+            try:
+                image = device.scan()
                 images.append(image.copy())
-            device.close()
-        except _sane.error:
-            pass
+            except Exception as e:
+                if str(e) == 'Document feeder out of documents':
+                    self.print('Document feeder is empty.')
+                else:
+                    self.print(f"Stopping ADF processing: {str(e)}")
+                break
+        device.close()
         if code in Scan.data_devices:
             del Scan.data_devices[code]
+        n1 = len(self.images) - n0
+        self.print(f"Scanned {n1} new images.")
         if cb_done:
             cb_done()
         return images
@@ -360,9 +372,13 @@ class Scan:
             self.print(f"Device '{code}' not available.")
             return images
         # device.source = 'Flatbed'
+        Scan.data_request_stop = False
         try:
             image = device.scan()
-            images.append(image)
+            if Scan.data_request_stop:
+                self.print("Scan has been completed. However, stop was requested. Ignoring the image.")
+            else:
+                images.append(image)
         except _sane.error as err:
             print(f"Failure to scan from device '{device}': {err}")
         device.close()
