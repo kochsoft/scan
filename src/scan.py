@@ -32,7 +32,8 @@ import argparse
 from enum import Enum
 from pathlib import Path
 from argparse import RawTextHelpFormatter
-from typing import Optional, Union, List, Dict, Tuple, Callable, Iterable, Any
+from collections import OrderedDict as odict
+from typing import Optional, Union, List, Dict, Tuple, Callable, Iterable, Any, OrderedDict
 from numbers import Number
 from math import log, floor, sqrt
 
@@ -104,6 +105,7 @@ class E_Status_A4(Enum):
 
 class Scan:
     """Main class for the command line script of this project."""
+    data_next_index_image = 0  # type: int
     data_request_stop = False  # type: bool
     data_init = None  # type: Optional[Tuple[int,int,int,int]]
     data_devices_info = list()  # type: List[Tuple[str,str,str,str]]
@@ -119,9 +121,23 @@ class Scan:
     def reset():
         """Closes all devices and resets all global properties."""
         Scan.close_all()
+        Scan.data_next_index_image = 0
         Scan.data_init = None
         Scan.data_devices_info = list()
         Scan.data_devices = dict()
+
+    @staticmethod
+    def get_next_name(tpl: str = '{:03}') -> str:
+        """:returns the next image name. Incidentally also increases Scan.data_next_index_image by 1."""
+        res = tpl.format(Scan.data_next_index_image)
+        Scan.data_next_index_image += 1
+        return res
+
+    @staticmethod
+    def parse_index_from_name(name: str, regexp='([0-9]+)') -> int:
+        """Parses the first index from an image name."""
+        lst = re.findall(regexp, name)
+        return int(lst[0]) if lst else 0
 
     @staticmethod
     def complete_code_hint(code_hint: Optional[str] = None) -> Optional[str]:
@@ -193,7 +209,7 @@ class Scan:
         self.format_output = E_OutputType.OT_PNG if arguments.png else E_OutputType.OT_PDF
         self.code_hint = arguments.dev
         self.code = Scan.complete_code_hint(self.code_hint) if self.code_hint else None
-        self.images = list()  # type: List[Image]
+        self.images = odict()  # type: OrderedDict[str, Image]
 
         if __name__ == '__main__':
             scan_tp = E_ScanType.ST_MULTI_ADF if arguments.multi else E_ScanType.ST_SINGLE_FLATBED
@@ -222,6 +238,17 @@ class Scan:
     def print(self, msg):
         """Local print function taking a callable. Intended for updating some statusbar in a GUI."""
         self.cb_print(msg)
+
+    def del_image_by_name(self, name: str) -> int:
+        """Attempts to remove an image from self.images.
+        :param name: Key name of an image in self.images
+        :returns the number of deleted images (i.e., either 1 or 0)."""
+        keys = list(self.images.keys())
+        if name in keys:
+            del self.images[name]
+            return 1
+        else:
+            return 0
 
     @staticmethod
     def dpi2tuple(dpi: Optional[Union[Number, Tuple[Number, Number]]] = None, *, min_dpi=0.01) -> Tuple[Number, Number]:
@@ -283,7 +310,7 @@ class Scan:
         return im_out
 
     @staticmethod
-    def save_images(pfname: str, images: List[Image], *, tp: E_OutputType = E_OutputType.OT_PDF,
+    def save_images(pfname: str, images: OrderedDict[str, Image], *, tp: E_OutputType = E_OutputType.OT_PDF,
                     dpi: Optional[Union[Number, Tuple[Number, Number]]] = None, enforce_A4: E_Status_A4 = E_Status_A4.SA_NONE, landscape = False) -> int:
         if not images:
             _log.warning(f"Failure to write target file '{pfname}': Given image list is empty.")
@@ -293,28 +320,29 @@ class Scan:
             return 2
         dpi = Scan.dpi2tuple(dpi)
         if enforce_A4 != E_Status_A4.SA_NONE:
-            images_A4 = list()  # type: List[Image]
-            for img in images:
-                images_A4.append(Scan.convert_to_A4(img, dpi=dpi, stretch_content=(enforce_A4==E_Status_A4.SA_STRETCH)))
+            images_A4 = odict()  # type: OrderedDict[str, Image]
+            for key in images:
+                images_A4[key] = Scan.convert_to_A4(images[key], dpi=dpi, stretch_content=(enforce_A4==E_Status_A4.SA_STRETCH))
             images = images_A4
         if landscape:
-            images_landscape = list()  # type: List[Image]
-            for img in images:
-                images_landscape.append(img.rotate(90, expand=True))
+            images_landscape = odict()  # type: OrderedDict[str, Image]
+            for key in images:
+                images_landscape[key] = images[key].rotate(90, expand=True)
             images = images_landscape
         if len(images) > 1:
             if tp == E_OutputType.OT_PDF:
-                images[0].save(pfname, tp.to_format(), dpi=dpi, save_all=True, append_images=images[1:])
+                images[list(images.keys())[0]].save(pfname, tp.to_format(), dpi=dpi, save_all=True, append_images=list(images.values())[1:])
             else:
                 # [Note: PNG does not support multipage documents. Write enumerated individual files instead.]
                 n_digits = floor(log(len(images),10)) + 1
+                list_images = list(images.values())  # type: List[Image]
                 for j in range(len(images)):
                     pname = Path(pfname).parent
                     fname = Path(pfname).name
                     pfn = Path(pname).joinpath(f'{j:0{n_digits}d}_{fname}')
-                    images[j].save(pfn, tp.to_format(), dpi=dpi)
+                    list_images[j].save(pfn, tp.to_format(), dpi=dpi)
         else:
-            images[0].save(pfname, tp.to_format(), dpi=dpi)
+            list(images.values())[0].save(pfname, tp.to_format(), dpi=dpi)
         return 0
 
     def scan_stop(self, code: Optional[str] = None):
@@ -327,8 +355,8 @@ class Scan:
         else:
             self.print(f"Canceling scan from device '{code}' is unnecessary. Device does not seem to exist.")
 
-    def scan_adf(self, code: Optional[str] = None, images: Optional[List[Image]] = None, *,
-                 cb_done: Optional[callable] = None, cb_single_done: Optional[callable] = None) -> List[Image]:
+    def scan_adf(self, code: Optional[str] = None, images: Optional[OrderedDict[str, Image]] = None, *,
+                 cb_done: Optional[callable] = None, cb_single_done: Optional[callable] = None) -> OrderedDict[str, Image]:
         """Perform an ADF (Automatic Document Feeder) multi-scan and write temporary png graphics."""
         if code is None:
             code = self.code
@@ -338,7 +366,7 @@ class Scan:
         if not device:
             self.print(f"Device '{code}' not available.")
             return images
-        device.source = "ADF"
+        device.source = 'ADF'
         n0 = len(self.images)
         Scan.data_request_stop = False
         while True:
@@ -347,7 +375,7 @@ class Scan:
                 break
             try:
                 image = device.scan()
-                images.append(image.copy())
+                images[Scan.get_next_name('{:03}_adf')] = image.copy()
                 if cb_single_done:
                     cb_single_done()
             except Exception as e:
@@ -365,7 +393,7 @@ class Scan:
             cb_done()
         return images
 
-    def scan_flatbed(self, code: Optional[str] = None, images: Optional[List[Image]] = None, *, cb_done: Optional[callable] = None) -> List[Image]:
+    def scan_flatbed(self, code: Optional[str] = None, images: Optional[OrderedDict[str, Image]] = None, *, cb_done: Optional[callable] = None) -> OrderedDict[str, Image]:
         if code is None:
             code = self.code
         device = Scan.data_devices[code] if code in Scan.data_devices else None  # type: Optional[sane.SaneDev]
@@ -382,7 +410,7 @@ class Scan:
             if Scan.data_request_stop:
                 self.print("Scan has been completed. However, stop was requested. Ignoring the image.")
             else:
-                images.append(image)
+                images[Scan.get_next_name('{:03}_flatbed')] = image
         except _sane.error as err:
             print(f"Failure to scan from device '{device}': {err}")
         device.close()

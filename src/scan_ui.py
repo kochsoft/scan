@@ -18,6 +18,7 @@ Literature:
 import time
 import tkinter as tk
 import tkinter.filedialog
+import tkinter.messagebox
 from tkinter import ttk
 from threading import Thread
 from idlelib.tooltip import Hovertip
@@ -44,6 +45,7 @@ pfname_png_up_image = Path(pfname_script.parent, 'icons/up_image.png')
 pfname_png_dn_image = Path(pfname_script.parent, 'icons/dn_image.png')
 pfname_png_delete = Path(pfname_script.parent, 'icons/delete.png')
 
+
 class TextWindow:
     """A glorified text box."""
     def __init__(self, parent: tk.Tk, msg: str, img: Optional[tk.PhotoImage] = None, dim=(80,40)):
@@ -68,8 +70,10 @@ class TextWindow:
 
 
 class ScanGui:
-    def __init__(self):
 
+    data_name_empty = '<empty>'
+
+    def __init__(self):
         self.width_column = 40
         self.padding_columns = 10
 
@@ -84,8 +88,8 @@ class ScanGui:
         self.icon_disk = None  # type: Optional[tk.PhotoImage]
         self.icon_stop = None  # type: Optional[tk.PhotoImage]
         self.icon_empty = None  # type: Optional[ImageTk.PhotoImage]
-        self.icon_up_image = None  # type: Optional[tk.PhotoImage]
-        self.icon_dn_image = None  # type: Optional[tk.PhotoImage]
+        self.icon_up_image = None  # type: Optional[ImageTk.PhotoImage]
+        self.icon_dn_image = None  # type: Optional[ImageTk.PhotoImage]
         self.icon_delete = None  # type: Optional[tk.PhotoImage]
 
         self.var_combo_device = None  # type: Optional[tk.StringVar]
@@ -107,10 +111,12 @@ class ScanGui:
         self.image_preview = None  # type: Optional[Image]
         self.photo_preview = None  # type: Optional[ImageTk.PhotoImage]
         self.label_preview = None  # type: Optional[tk.Label]
-        self.var_combo_index_preview = None  # type: Optional[tk.StringVar]
-        self.combo_index_preview = None  # type: Optional[ttk.Combobox]
+
         self.button_up_image = None  # type: Optional[tk.Button]
         self.button_dn_image = None  # type: Optional[tk.Button]
+
+        self.listbox_preview = None  # type: Optional[tk.Listbox]
+        self.scrollbar_preview = None  # type: Optional[tk.Scrollbar]
         self.button_delete_image = None  # type: Optional[tk.Button]
 
         self.menu = None  # type: Optional[tk.Menu]
@@ -143,6 +149,63 @@ class ScanGui:
         numbers = re.findall('([0-9]+)', text)
         return int(numbers[-1]) if numbers else 0
 
+    @property
+    def entry_active_image(self) -> Optional[str]:
+        """:returns the name of the active entry if there is one, and it is not f'{ScanGui.data_name_empty}'. None else."""
+        entries = list(self.listbox_preview.get(0, tk.END))
+        if len(entries) == 1 and entries[0] == ScanGui.data_name_empty:
+            return None
+        else:
+            tpl_index_current = self.listbox_preview.curselection()
+            return None if not tpl_index_current else entries[tpl_index_current[0]]
+
+    @entry_active_image.setter
+    def entry_active_image(self, entry: str):
+        """Attempts to set the given entry as active entry. Will do nothing in case of failure."""
+        entries = self.listbox_preview.get(0, tk.END)  # type: List[str]
+        try:
+            index = entries.index(entry)
+        except ValueError:
+            return
+        self.listbox_preview.selection_clear(0, tk.END)
+        self.listbox_preview.select_set(index)
+        #self.listbox_preview.yview_moveto(index/len(entries))
+        self.listbox_preview.see(index)
+
+    @property
+    def image_entries(self) -> List[str]:
+        """:returns image entry names registered in self.listbox_preview. The name of the empty image does not count."""
+        entries = self.listbox_preview.get(0, tk.END)
+        if len(entries) == 1 and entries[0] == ScanGui.data_name_empty:
+            return list()
+        else:
+            return entries
+
+    @image_entries.setter
+    def image_entries(self, entries: List[str]):
+        """Sets the given entries list to self.image_list_preview. Will set ['<empty>'] if the list is empty."""
+        if not entries:
+            entries = [ScanGui.data_name_empty]
+        entry_active = self.entry_active_image
+        self.listbox_preview.delete(0, tk.END)
+        for j in range(len(entries)):
+            self.listbox_preview.insert(tk.END, entries[j])
+        self.entry_active_image = entry_active
+
+    @property
+    def image_keys(self) -> List[str]:
+        """:returns the currently known image keys from self.scan. Tolerates self.scan == None."""
+        return list(self.scan.images.keys()) if self.scan else list()
+
+    @property
+    def n_image_entries(self) -> int:
+        """:returns number of scanned images that are registered in self.listbox_preview. The empty image does not count."""
+        entries = self.listbox_preview.get(0, tk.END)
+        if len(entries) == 1 and entries[0] == ScanGui.data_name_empty:
+            return 0
+        else:
+            return len(entries)
+
     @label_pages_number.setter
     def label_pages_number(self, val: int):
         """Setter for the number that is displayed in self.label_pages_number."""
@@ -164,14 +227,16 @@ class ScanGui:
             return E_Status_A4.SA_NONE
 
     def update_preview_image(self, image: Optional[Image] = None):
+        """Update the preview image display label."""
         is_empty = False
         if image is None:
-            try:
-                val = int(self.var_combo_index_preview.get())
-                image = self.scan.images[val].copy()
-            except (AttributeError, IndexError, ValueError):
+            name_current = self.entry_active_image  # type: Optional[str]
+            if name_current is None:
                 image = self.image_empty.copy()
                 is_empty = True
+            else:
+                image = self.scan.images[name_current]
+                is_empty = False
         if not is_empty:
             need_A4 = self.status_A4
             if need_A4 != E_Status_A4.SA_NONE:
@@ -202,70 +267,78 @@ class ScanGui:
     def handler_update_preview_image(self, event):
         self.update_preview_image()
 
-    def show_preview(self, val: Optional[int] = None):
-        def drop_image():
-            self.label_preview['image'] = self.icon_empty
-        n = len(self.scan.images) if self.scan else 0
-        if n:
-            try:
-                val = int(self.combo_index_preview.get() if val is None else val)
-                if val >= n:
-                    val = n-1
-                elif val < 0:
-                    val = 0
-            except ValueError:
-                drop_image()
-                return
-            self.update_preview_image(self.scan.images[val])
+    def show_preview(self, name_image: Optional[str] = None):
+        """Show the active preview if one is available. Else the 'empty' image."""
+        keys = self.image_keys
+        if name_image is None:
+            name_image = self.entry_active_image
+        if name_image in keys:
+            self.update_preview_image(self.scan.images[name_image])
         else:
-            drop_image()
-            return
+            self.label_preview['image'] = self.icon_empty
+        self.update_buttons_up_dn_image()
 
-    def update_buttons_up_dn_image(self):
-        """Adjust enabled status of the up and dn buttons of the image preview tab."""
-        n = len(self.scan.images) if self.scan else 0
-        enable_up = False
-        enable_dn = False
-        try:
-            val = int(self.var_combo_index_preview.get())
-            if val > 0:
-                enable_up = True
-            if val < n-1:
-                enable_dn = True
-        except ValueError:
-            pass
-        self.button_up_image.config(state = 'normal' if enable_up else 'disabled')
-        self.button_dn_image.config(state = 'normal' if enable_dn else 'disabled')
+    def update_listbox_preview(self, name2display: Optional[str] = None):
+        """Adjust status of listbox governing previews."""
+        entries = self.image_entries  # type: List[str]
+        keys = self.image_keys  # type: List[str]
+        if name2display is None:
+            name2display = self.entry_active_image
+        if name2display not in keys:
+            name2display = keys[-1] if keys else ScanGui.data_name_empty
+        lists_are_equal = len(entries) == len(keys) and all([entries[j] == keys[j] for j in range(len(keys))])
+        if not lists_are_equal:
+            self.image_entries = keys
+        self.entry_active_image = name2display
 
     def handler_resize_label_preview(self, event):
         self.update_preview_image()
 
     def handler_show_preview(self, event):
-        self.update_buttons_up_dn_image()
         self.show_preview()
 
-    def update_previews(self):
-        """Parses the images list and the preview combobox and updates the preview tab accordingly."""
+    def image_up_dn(self, up: bool):
+        entry_current = self.entry_active_image
+        if not entry_current:
+            return
+        entries = self.image_entries
+        index = entries.index(entry_current)
+        index += (-1) if up else 1
+        if index < 0:
+            index = 0
+        elif index >= len(entries):
+            index = len(entries) - 1
+        self.entry_active_image = entries[index]
+        self.show_preview()
+
+    def update_buttons_up_dn_image(self):
+        """Adjust enabled status of the up and dn buttons of the image preview tab."""
+        enable_up = False
+        enable_dn = False
+        entries = self.image_entries
+        n = len(self.image_entries)
+        try:
+            index = entries.index(self.entry_active_image)
+            if index > 0:
+                enable_up = True
+            if index < n - 1:
+                enable_dn = True
+        except ValueError:
+            pass
+        self.button_up_image.config(state='normal' if enable_up else 'disabled')
+        self.button_dn_image.config(state='normal' if enable_dn else 'disabled')
+
+    def update_previews_tab(self, name2display: Optional[str] = None):
+        """Parses the images list and updates the preview tab accordingly."""
         n = len(self.scan.images) if self.scan else 0
-        elts = (self.label_preview, self.combo_index_preview, self.button_delete_image, self.button_up_image, self.button_dn_image)
+        elts = (self.label_preview, self.listbox_preview, self.button_delete_image, self.button_up_image, self.button_dn_image)
+        self.listbox_preview.config(state='normal')
+        self.update_listbox_preview(name2display)
         for elt in elts:
             elt.config(state='disabled' if (n==0) else 'normal')
-        if not n:
-            empty = '<empty>'
-            self.combo_index_preview['values'] = (empty,)
-            self.var_combo_index_preview.set(empty)
-        else:
-            val = self.var_combo_index_preview.get()
-            tpl = tuple([str(j) for j in range(n)])
-            self.combo_index_preview['values'] = tpl
-            if val not in tpl:
-                self.var_combo_index_preview.set(tpl[-1])
-            if self.var_combo_index_preview.get() == tpl[0]:
-                self.button_up_image.config(state='disabled')
-            if self.var_combo_index_preview.get() == tpl[-1]:
-                self.button_dn_image.config(state='disabled')
         if self.thread_scan and self.thread_scan.is_alive():
             self.button_delete_image.config(state='disabled')
+        self.update_buttons_up_dn_image()
         self.show_preview()
 
     @staticmethod
@@ -326,7 +399,8 @@ class ScanGui:
         self.enable_stop(to_stop=False, enable=True, single_scan=True)
         self.enable_stop(to_stop=False, enable=True, single_scan=False)
         self.label_pages_number = len(self.scan.images)
-        self.update_previews()
+        keys = list(self.scan.images.keys())
+        self.update_previews_tab(keys[-1] if keys else None)
 
     def cb_init(self):
         self.root.event_generate("<<init_complete>>", when='tail') #, state=123)
@@ -359,7 +433,7 @@ class ScanGui:
         def t_init_scan_object(ui):
             ui.scan = Scan(cb_print=self.print, cb_init=ui.cb_init)
         self.enable_gui(False)
-        self.update_previews()
+        self.update_previews_tab()
         self.thread_init = self.call_threaded(t_init_scan_object, (self,))
 
     def threaded_initialize_scan_action(self, tp_: E_ScanType) -> Thread:
@@ -453,32 +527,25 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         success = 'Failure to save' if self.scan.save_images(pfname_out, self.scan.images, tp=tp, enforce_A4=self.status_A4, landscape=landscape) else 'Successfully saved'
         self.print(f"{success} {len(self.scan.images)} images. Using base pfname '{pfname_out}'.")
 
-    def up_image(self):
-        j = int(self.var_combo_index_preview.get()) - 1
-        self.var_combo_index_preview.set(str(j))
+    def select_image(self):
         self.show_preview()
-        self.update_buttons_up_dn_image()
-
-    def dn_image(self):
-        j = int(self.var_combo_index_preview.get()) + 1
-        self.var_combo_index_preview.set(str(j))
-        self.show_preview()
-        self.update_buttons_up_dn_image()
 
     def delete_image(self):
         """Drop an image from the images list and update the preview tab accordingly."""
-        n = len(self.scan.images) if self.scan else 0
-        if not n:
-            return  # << Nothing to delete.
+        name = self.entry_active_image
+        if name is None:
+            return
+        names = list(self.scan.images.keys())
         try:
-            val = int(self.var_combo_index_preview.get())
-            if val < 0 or val >= n:
-                return
-            del self.scan.images[val]
-            self.label_pages_number = n-1
+            index = names.index(name)
         except ValueError:
             return
-        self.update_previews()
+        self.scan.del_image_by_name(name)
+        names = list(self.scan.images.keys())
+        if names:
+            self.update_previews_tab(names[index] if index < len(names) else names[index - 1])
+        else:
+            self.update_previews_tab()
 
     def delete_image_stack(self):
         """Gracefully drop all images."""
@@ -492,7 +559,7 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         if not self.ask_ok('This will delete all currently scanned images. Are you sure?', 'Delete image stack'):
             return
         self.scan.images.clear()
-        self.update_previews()
+        self.update_previews_tab()
 
     def enable_stop(self, *, to_stop: bool, enable: bool, single_scan: bool):
         """Modifies the scanning buttons. Enabling and/or flipping them to 'do you want to cancel'-mode.
@@ -570,7 +637,8 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.tab2.columnconfigure(0, weight=1)
         self.tab2.columnconfigure(1, weight=1)
         # [Note: Vertical expansion shall be done around row 0, where the large preview widget is.]
-        self.tab2.rowconfigure(0, weight=1)
+        self.tab2.rowconfigure(0, weight=4)
+        self.tab2.rowconfigure(1, weight=1)
         self.tab2.pack(fill=tk.BOTH, expand=True)
 
         self.tabControl.add(self.tab1, text="Main Functions")
@@ -625,32 +693,34 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         # > Control elements tab2. -----------------------------------
         self.label_preview = tk.Label(self.tab2, relief=tk.RIDGE, anchor=tk.W)
         self.label_preview['image'] = self.icon_empty
-        self.label_preview.grid(row=0, column=0, columnspan=2, sticky='nsew')
+        self.label_preview.grid(row=0, column=0, columnspan=3, sticky='nsew')
         self.label_preview.bind('<Configure>', self.handler_resize_label_preview)
 
-        self.var_combo_index_preview = tk.StringVar()
-        self.combo_index_preview = ttk.Combobox(self.tab2, textvariable=self.var_combo_index_preview)
-        self.combo_index_preview.grid(row=1,column=0, sticky='ewn')
-        self.combo_index_preview['values'] = '<empty>',
-        self.combo_index_preview['state'] = 'readonly'
-        self.combo_index_preview.current(0)
-        self.combo_index_preview.bind('<<ComboboxSelected>>', self.handler_show_preview)
-        Hovertip(self.combo_index_preview, 'Select the image index to review the respective scan.')
+        self.button_up_image = tk.Button(self.tab2, image=self.icon_up_image, command=lambda: self.image_up_dn(True))
+        self.button_up_image.grid(row=1, column=0, sticky='ew')
 
-        self.button_up_image = tk.Button(self.tab2, image=self.icon_up_image, command=self.up_image)
-        self.button_up_image.grid(row=2, column=0, sticky='ew')
+        self.button_dn_image = tk.Button(self.tab2, image=self.icon_dn_image, command=lambda: self.image_up_dn(False))
+        self.button_dn_image.grid(row=2, column=0, sticky='ew')
 
-        self.button_dn_image = tk.Button(self.tab2, image=self.icon_dn_image, command=self.dn_image)
-        self.button_dn_image.grid(row=3, column=0, sticky='ew')
+        # https://stackoverflow.com/questions/10048609/how-to-keep-selections-highlighted-in-a-tkinter-listbox
+        self.listbox_preview = tk.Listbox(self.tab2, exportselection=False)
+        self.listbox_preview.grid(row=1, column=1, rowspan=2, sticky='nsew')
+        self.listbox_preview.insert(tk.END, ScanGui.data_name_empty)
+        self.listbox_preview.select_set(0)
+        self.listbox_preview.bind('<<ListboxSelect>>', self.handler_show_preview)
+        self.scrollbar_preview = tk.Scrollbar(self.listbox_preview, orient='vertical')
+        self.scrollbar_preview.config(command=self.listbox_preview.yview)
+        self.scrollbar_preview.pack(side="right", fill="y")
+        self.listbox_preview.config(yscrollcommand=self.scrollbar_preview.set)
+        Hovertip(self.listbox_preview, 'Review and reorder (by drag and drop) images.')
 
         self.button_delete_image = tk.Button(self.tab2, image=self.icon_delete, command=self.delete_image)
-        self.button_delete_image.grid(row=1, column=1, rowspan=3, sticky='nsew')
+        self.button_delete_image.grid(row=1, column=2, rowspan=2, sticky='nsew')
         Hovertip(self.button_delete_image, 'Delete the currently visible image.')
 
         self.label_pages2 = tk.Label(self.tab2, text='Current number of pages: 0', relief=tk.RIDGE, anchor=tk.W)
         self.label_pages2.grid(row=4, column=0, columnspan=2, sticky='ew')
         Hovertip(self.label_pages2, 'If a document were to be saved now it should receive this many pages.')
-
         # < ----------------------------------------------------------
 
 if __name__ == '__main__':
