@@ -115,6 +115,7 @@ class ScanGui:
         self.button_up_image = None  # type: Optional[tk.Button]
         self.button_dn_image = None  # type: Optional[tk.Button]
 
+        self.index_listbox_preview_at_b1_dn = 0  # type: int
         self.listbox_preview = None  # type: Optional[tk.Listbox]
         self.scrollbar_preview = None  # type: Optional[tk.Scrollbar]
         self.button_delete_image = None  # type: Optional[tk.Button]
@@ -296,6 +297,31 @@ class ScanGui:
 
     def handler_show_preview(self, event):
         self.show_preview()
+
+    def handler_listbox_preview_b1up(self, event):
+        """For changing the order of images. Will place the image that was selected at mouse1-down time before the
+        image that was selected at mouse1-up time."""
+        index1 = self.listbox_preview.nearest(event.y)
+        index0 = self.index_listbox_preview_at_b1_dn
+        if index0 == index1:
+            return
+        entry0 = self.image_entries[index0]
+        data_raw = [(key, self.scan.images[key]) for key in self.scan.images]
+        data = list()  # type: List[Tuple[str, Image]]
+        for j in range(index1):
+            if j != index0:
+                data.append(data_raw[j])
+        data.append(data_raw[index0])
+        for j in range(index1, len(data_raw)):
+            if j != index0:
+                data.append(data_raw[j])
+        self.scan.images = odict(data)
+        self.update_listbox_preview(entry0)
+        self.show_preview(entry0)
+
+    def handler_listbox_preview_b1dn(self, event):
+        """Merely records the index of the selected item in the preview listbox. Needed by handler_listbox_preview_b1up."""
+        self.index_listbox_preview_at_b1_dn = self.listbox_preview.nearest(event.y)
 
     def image_up_dn(self, up: bool):
         entry_current = self.entry_active_image
@@ -708,6 +734,8 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.listbox_preview.insert(tk.END, ScanGui.data_name_empty)
         self.listbox_preview.select_set(0)
         self.listbox_preview.bind('<<ListboxSelect>>', self.handler_show_preview)
+        self.listbox_preview.bind('<Button-1>', self.handler_listbox_preview_b1dn)
+        self.listbox_preview.bind('<ButtonRelease-1>', self.handler_listbox_preview_b1up)
         self.scrollbar_preview = tk.Scrollbar(self.listbox_preview, orient='vertical')
         self.scrollbar_preview.config(command=self.listbox_preview.yview)
         self.scrollbar_preview.pack(side="right", fill="y")
