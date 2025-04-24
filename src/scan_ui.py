@@ -299,20 +299,24 @@ class ScanGui:
         self.show_preview()
 
     def handler_listbox_preview_b1up(self, event):
-        """For changing the order of images. Will place the image that was selected at mouse1-down time before the
-        image that was selected at mouse1-up time."""
+        """For changing the order of images. Will place the image that was selected at mouse1-down time before or
+        after the image that was selected at mouse1-up time. Before or after depends on whether the drop occurred
+        above or below the middle of the target line."""
         index1 = self.listbox_preview.nearest(event.y)
         index0 = self.index_listbox_preview_at_b1_dn
         if index0 == index1:
             return
+        # [Note: bbox is (x,y,w,h) in px of the line of the listbox at the given index.]
+        bbox = self.listbox_preview.bbox(index1)
+        insert_above_addendum = 1 if (bbox[1] + bbox[3]//2) <= event.y else 0
         entry0 = self.image_entries[index0]
         data_raw = [(key, self.scan.images[key]) for key in self.scan.images]
         data = list()  # type: List[Tuple[str, Image]]
-        for j in range(index1):
+        for j in range(index1 + insert_above_addendum):
             if j != index0:
                 data.append(data_raw[j])
         data.append(data_raw[index0])
-        for j in range(index1, len(data_raw)):
+        for j in range(index1 + insert_above_addendum, len(data_raw)):
             if j != index0:
                 data.append(data_raw[j])
         self.scan.images = odict(data)
