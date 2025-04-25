@@ -402,6 +402,7 @@ class ScanGui:
             self.button_delete_image.config(state='disabled')
         self.update_buttons_up_dn_image()
         self.show_preview()
+        self.label_pages_number = n
 
     @staticmethod
     def t_wait_and_bind_events(ui):
@@ -785,7 +786,7 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.var_check_landscape = tk.IntVar()
         self.check_landscape = tk.Checkbutton(self.tab1, anchor=tk.W, text='Landscape', variable=self.var_check_landscape, command=self.update_preview_image)
         self.check_landscape.grid(row=2, column=0, sticky='ew')
-        Hovertip(self.check_landscape, 'Normally files will be saved seascape (AKA portrait, i.e., long edge is vertical). Check this to get landscape mode.')
+        Hovertip(self.check_landscape, 'Normally, files will be saved seascape (AKA portrait, i.e., long edge is vertical). Check this to get landscape mode.')
 
         self.var_combo_A4 = tk.StringVar()
         self.combo_A4 = ttk.Combobox(self.tab1, textvariable=self.var_combo_A4)

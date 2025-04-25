@@ -2,6 +2,10 @@
 
 A UI frontend for the **Sane** library.
 
+![Screenshot of Scan's main tab.](https://github.com/kochsoft/scan/blob/main/doc/gallery/ui_opening.png "Fig.: The main tab.")
+
+![Screenshot of Scan's previewing tab.](https://github.com/kochsoft/scan/blob/main/doc/gallery/preview_window.png "Fig.: The sorting and preview tab.")
+
 ## About
 
 This project aims at **ease of use** for scanning, both from flatbed and automatic
@@ -140,7 +144,7 @@ options:
                         Attempt to set the given value as resolution for the selected input scanning device.
   --resolutions         List known resolution values for the selected input device.
   --png                 Produce a set of png graphics rather than a comprehensive pdf file.
-  --a4 A4               Enforce A4 format. Give 'stretch' or 'pad' for stretching or merely pasting the original image content.
+  --a4 A4               Enforce A4 format. Give 'stretch' or 'pad' for stretching or padding the original image content.
   --landscape           Do a 90 degree rotation for landscape orientation (as opposed to portrait, AKA seascape).
   --scan                Do a single flatbed scan.
   --multi               Do an Automatic Document Feeder (ADF) scan.
