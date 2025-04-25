@@ -198,6 +198,68 @@ class Scan:
         Scan.data_devices = dict()
 
     @staticmethod
+    def get_option(dev: sane.SaneDev, key: str) -> Optional[sane.Option]:
+        """:param dev: An open sane device.
+        :param key: Option name string. Like 'resolution'.
+          If the call succeeds, that is a dev attribute. Like 'dev.resolution'.
+        :returns a sane.Option object in case of success, else None."""
+        try:
+            return dev[key]  # type: sane.Option
+        except (KeyError, TypeError, _sane.error):
+            return None
+
+    @staticmethod
+    def get_option_value(dev, key: str) -> Any:
+        option = Scan.get_option(dev, key)
+        if option:
+            try:
+                return getattr(dev, key)
+            except (KeyError, TypeError, _sane.error) as err:
+                _log.warning(f"Failure to get value for option '{key}': {err}")
+                return None
+
+    @staticmethod
+    def set_option(dev: sane.SaneDev, val: Optional[Union[str, int, bool]], key: str) -> int:
+        if val is None:
+            # [Note: Silently ignoring None. This is a feature for ease of use.]
+            return 0
+        option = Scan.get_option(dev, key)
+        if option is None or not option.is_settable() :
+            _log.warning(f"Failure to set option '{key}' to value '{val}': Option is either not existent or not settable.")
+            return 1
+        tp = sane.TYPE_STR[option.type]
+        if tp == 'TYPE_INT':
+            try:
+                val = int(val)
+            except ValueError as err:
+                _log.warning(f"Failure to set option '{key}' to value '{val}': Value cannot be cast to int(..): {err}")
+                return 2
+        elif tp == 'TYPE_STRING':
+            val = str(val)
+        elif tp == 'TYPE_BOOL':
+            val = bool(val)
+        else:
+            _log.warning(f"Failure to set option '{key}' to value '{val}': Unsupported tp string '{tp}'.")
+            return 3
+        try:
+            if val not in option.constraint:
+                _log.warning(f"Given value '{val}' is not an official option of {option.constraint}. Attempting to set it anyway.")
+            setattr(dev, key, val)
+        except _sane.error as err:
+            _log.warning(f"Failure to set option '{key}' to value '{val}': {err}")
+            return 4
+        return 0
+
+    @staticmethod
+    def get_possible_resolutions(dev: sane.SaneDev) -> Optional[List[Union[int, str]]]:
+        option = Scan.get_option(dev, 'resolution')
+        return None if option is None else option.constraint
+
+    @staticmethod
+    def set_resolution(dev: sane.SaneDev, val: Optional[Union[int, str]] = None) -> int:
+        return Scan.set_option(dev, val, 'resolution')
+
+    @staticmethod
     def call_silent(cmd: callable, *args, **kwargs) -> Any:
         """Calls cmd(*args, **kwargs), redirecting any output to /dev/null."""
         # https://stackoverflow.com/questions/6735917/redirecting-stdout-to-nothing-in-python
@@ -215,23 +277,41 @@ class Scan:
             self.print(Scan.available_codes2str())
             sys.exit(0)
 
-        self.format_output = E_OutputType.OT_PNG if arguments.png else E_OutputType.OT_PDF
         self.code_hint = arguments.dev
         self.code = Scan.complete_code_hint(self.code_hint) if self.code_hint else None
         self.images = odict()  # type: OrderedDict[str, Image]
 
+        self.resolution = arguments.resolution  # type: Optional[Union[int, str]]
+        if arguments.resolutions:
+            self.handle_argument_resolutions()
+            sys.exit(0)
+
         if __name__ == '__main__':
+            pfname_out = arguments.pfname_out  # type: str
+            format_output = E_OutputType.OT_PNG if (arguments.png or pfname_out.lower().endswith('png')) else E_OutputType.OT_PDF
             scan_tp = E_ScanType.ST_MULTI_ADF if arguments.multi else E_ScanType.ST_SINGLE_FLATBED
             Scan.init_device(self.code)
             self.scan(scan_tp)
             if self.images and arguments.pfname_out:
                 self.print(f"Attempting to write {len(self.images)} images to file: '{arguments.pfname_out}'.")
-                self.save_images(arguments.pfname_out, self.images, dpi=arguments.dpi, tp=self.format_output,
+                self.save_images(pfname_out, self.images, dpi=arguments.dpi, tp=format_output,
                                  enforce_A4=E_Status_A4.from_str(arguments.a4), landscape=True if arguments.landscape else False)
             else:
                 (self.print(f"Failure to scan any images."))
         else:
             cb_init()
+
+    def handle_argument_resolutions(self):
+        if err := Scan.init_device(self.code):
+            self.print(f"Failure to obtain device '{self.code}' for usage.")
+            sys.exit(err)
+        dev = self.device
+        const = Scan.get_possible_resolutions(dev)
+        if const is None:
+            self.print(f"Current device '{self.code}' does not support a resolution setting.")
+        else:
+            res = Scan.get_option_value(dev, 'resolution')
+            self.print(f"Current resolution setting for device '{self.code}': '{res}'. Known resolutions: {const}")
 
     @property
     def device(self) -> Optional[sane.SaneDev]:
@@ -377,6 +457,7 @@ class Scan:
             self.print(f"Device '{code}' not available.")
             return images
         device.source = 'ADF'
+        Scan.set_resolution(device, self.resolution)
         n0 = len(self.images)
         Scan.data_request_stop = False
         while True:
@@ -413,6 +494,7 @@ class Scan:
             self.print(f"Device '{code}' not available.")
             return images
         # device.source = 'Flatbed'
+        Scan.set_resolution(device, self.resolution)
         n0 = len(images)
         Scan.data_request_stop = False
         try:
@@ -454,6 +536,8 @@ $ python3 scan.py --list"""
         parser.add_argument('--dev', type=str, help="At least part of a device name. From known devices will use the "+\
                             f"first one that fits. If none is given, default '{defaults['code']}' will be used.", default=defaults['code'])
         parser.add_argument('--dpi', type=str, help=f"Either one or two dpi numbers for dpi_x and dpi_y. Default: {defaults['dpi']}", default=str(defaults['dpi']))
+        parser.add_argument('--resolution', type=str, help='Attempt to set the given value as resolution for the selected scanning device.')
+        parser.add_argument('--resolutions', action='store_true', help='List known resolution values for the selected device.')
         parser.add_argument('--png', action='store_true', help='Produce a set of png graphics rather than a comprehensive pdf file.')
         parser.add_argument('--a4', type=str, help="Enforce A4 format. Give 'stretch' or 'pad' for stretching or merely pasting the original image content.", default='none')
         parser.add_argument('--landscape', action='store_true', help='Do a 90 degree rotation for landscape orientation (as opposed to portrait, AKA seascape).')
