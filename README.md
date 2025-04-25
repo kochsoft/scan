@@ -2,23 +2,22 @@
 
 A UI frontend for the **Sane** library.
 
-![Screenshot of Scan's main tab.](https://github.com/kochsoft/scan/blob/main/doc/gallery/ui_opening.png "Fig.: The main tab.")
-
-![Screenshot of Scan's previewing tab.](https://github.com/kochsoft/scan/blob/main/doc/gallery/preview_window.png "Fig.: The sorting and preview tab.")
-
 ## About
 
 This project aims at **ease of use** for scanning, both from flatbed and automatic
 document feeder (ADF), and, as a side effect, even some cameras.
 
-A proper wiki page is yet a **ToDo**. However, at this time at least some
-screenshots are available at
-
-https://github.com/kochsoft/scan/tree/main/doc/gallery
-
 Right off the bat: This project employs the **Sane** library, in order to access
 scanning devices from the computer. So, as far as I can judge, this tool is for
 **Linux-like systems only**: http://www.sane-project.org/sane-support.html
+
+![Screenshot of Scan's main tab.](https://github.com/kochsoft/scan/blob/main/doc/gallery/ui_opening.png "Fig.: The main tab.")
+
+**Fig.:** The main tab.
+
+![Screenshot of Scan's previewing tab.](https://github.com/kochsoft/scan/blob/main/doc/gallery/preview_window.png "Fig.: The sorting and preview tab.")
+
+**Fig.:** The sorting and preview tab.
 
 ## Why is it?
 
@@ -105,7 +104,7 @@ the option of actually using the ADF (automatic document feeder).
 ### Required Packages -- Windows 11
 
 I was unable to bring Scan to Windows 11. Not even when using WSL 2
-(Windows Subsystem for Linux). Sane appears not have been made for this.
+(Windows Subsystem for Linux). Sane appears to not have been made for this.
 
 ## Running the program
 
