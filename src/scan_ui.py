@@ -759,7 +759,8 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         # https://www.pythontutorial.net/tkinter/tkinter-combobox/
         # [Note: The var for the combobox needs to be a persistent variable.]
         self.var_combo_device = tk.StringVar()
-        self.combo_device = ttk.Combobox(self.tab1, textvariable=self.var_combo_device) #, width=self.width_column)
+        self.combo_device = ttk.Combobox(self.tab1, textvariable=self.var_combo_device)
+        self.combo_device.config(foreground='blue')  # gold: '#fffaa0'
         self.combo_device.grid(row=0,column=0, columnspan=2, sticky='ew')
         self.combo_device['values'] = '<empty>',
         self.combo_device['state'] = 'readonly'
