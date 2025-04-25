@@ -29,6 +29,7 @@ import os
 import sys
 import logging
 import argparse
+import contextlib
 from enum import Enum
 from pathlib import Path
 from argparse import RawTextHelpFormatter
@@ -49,7 +50,8 @@ defaults = {
     'code': 'airscan', #'airscan:e0:EPSON ET-4850 Series',
     # Dots per inch.
     'dpi': 72,
-    'pfname_out': os.path.expanduser(r'~/scan.pdf')
+    # output pfname. Example: str(Path(os.getcwd()) / Path("scan.pdf")) is the 'scan.pdf' in the current working dir.
+    'pfname_out': str(Path(os.getcwd()) / Path("scan.pdf"))
 }
 # < ------------------------------------------------------------------
 
@@ -115,7 +117,7 @@ class Scan:
     def init_static():
         if Scan.data_init is None:
             Scan.data_init = sane.init()
-            Scan.data_devices_info = sane.get_devices()
+            Scan.data_devices_info = Scan.call_silent(sane.get_devices)
 
     @staticmethod
     def reset():
@@ -195,6 +197,13 @@ class Scan:
                 pass
         Scan.data_devices = dict()
 
+    @staticmethod
+    def call_silent(cmd: callable, *args, **kwargs) -> Any:
+        """Calls cmd(*args, **kwargs), redirecting any output to /dev/null."""
+        # https://stackoverflow.com/questions/6735917/redirecting-stdout-to-nothing-in-python
+        with contextlib.redirect_stdout(open(os.devnull, 'w')):
+            return cmd(*args, **kwargs)
+
     def __init__(self, *, cb_print: Callable[[str], None] = print,
                  cb_init: Callable[[], None] = cb_dummy,
                  args: Optional[List[str]] = None):
@@ -256,7 +265,8 @@ class Scan:
         if not dpi:
             dpi = defaults['dpi']
         if isinstance(dpi, str):
-            dpi = re.sub(r'[)\]]\s*$', '', re.sub(r'^\s*[[(]','',dpi))
+            dpi = re.sub(r'^\s*[(\[]','',dpi)
+            dpi = re.sub(r'[)\]]\s*$', '', dpi)
             dpi = tuple(float(d) for d in dpi.split(',')) if ',' in dpi else float(dpi)
         if isinstance(dpi, Number):
             dpi = dpi, dpi

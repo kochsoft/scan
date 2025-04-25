@@ -655,6 +655,8 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         # < ----------------------------------------------------------
         # > Tabs. ----------------------------------------------------
         self.tabControl = ttk.Notebook(self.root)
+        # https://stackoverflow.com/questions/49976353/python-tk-notebook-tab-change-check
+        # self.tabControl.bind('<<NotebookTabChanged>>', fct)  # TODO! Hier war ich.
 
         self.tab1 = ttk.Frame(self.tabControl)
         self.tab1.columnconfigure(0, weight=1)
