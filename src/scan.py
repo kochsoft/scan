@@ -182,11 +182,23 @@ class Scan:
         if code in Scan.data_devices:
             Scan.data_devices[code].close()
         try:
-            Scan.data_devices[code] = sane.open(code)
+            #Scan.data_devices[code] = sane.open(code)
+            Scan.data_devices[code] = Scan.call_silent(sane.open, code)
         except _sane.error:
             _log.warning(f"Failure to open device from code '{code}'. Available codes: {Scan.get_available_codes()}")
             return 2
         return 0
+
+    @staticmethod
+    def get_device(code_hint: str) -> Optional[sane.SaneDev]:
+        """:returns the device for the given code hint. If not already present, tries to create a new device."""
+        code = Scan.complete_code_hint(code_hint)
+        if code not in Scan.data_devices:
+            Scan.init_device(code)
+        if code in Scan.data_devices:
+            return Scan.data_devices[code]
+        else:
+            return None
 
     @staticmethod
     def close_all():

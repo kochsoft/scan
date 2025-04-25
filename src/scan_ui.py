@@ -99,6 +99,11 @@ class ScanGui:
         self.var_combo_A4 = None  # type: Optional[tk.StringVar]
         self.combo_A4 = None  # type: Optional[ttk.Combobox]
 
+        self.var_entry_dpi = None  # type: Optional[tk.StringVar]
+        self.entry_dpi = None  # type: Optional[tk.Entry]
+        self.var_combo_resolution = None  # type: Optional[tk.StringVar]
+        self.combo_resolution = None  # type: Optional[ttk.Combobox]
+
         self.ta_log = None  # type: Optional[tk.Text]
 
         self.button_scan_adf = None  # type: Optional[tk.Button]
@@ -428,6 +433,45 @@ class ScanGui:
             self.combo_device.current(index)
         elif len(codes):
             self.combo_device.current(0)
+        self.update_combo_resolution()
+
+    def set_resolution_to_current_device(self):
+        n = len(self.combo_resolution['values'])
+        if n < 2:
+            return  # << Nothing to do, since there is nothing to select.
+        code = self.var_combo_device.get()
+        device = Scan.get_device(code)
+        if not device:
+            return  # << No device, no resolution setting.
+        val = self.var_combo_resolution.get()
+        success = 'Successfully' if (Scan.set_option(device, val, 'resolution') == 0) else 'Failed to'
+        self.print(f"{success} set input resolution to '{val}'.")
+
+    def update_combo_resolution(self):
+        """Attempt to update or reset the content of the combobox combo_resolution."""
+        def set_empty():
+            self.combo_resolution['values'] = ['<unspecified>']
+            self.combo_resolution.current(0)
+
+        code = self.var_combo_device.get()
+        device = Scan.get_device(code)
+        if device is None:
+            set_empty()
+        else:
+            resolutions = Scan.get_possible_resolutions(device)
+            if not resolutions:
+                set_empty()
+            else:
+                self.combo_resolution['values'] = resolutions
+                val = Scan.get_option_value(device, 'resolution')
+                if val is None:
+                    index = 0
+                else:
+                    try:
+                        index = resolutions.index(val)
+                    except ValueError:
+                        index = 0
+                self.combo_resolution.current(index)
 
     def handler_scan_single_multi(self, event: tk.Event):
         """Very special interest. Triggered every time scan_adf completed another scan."""
@@ -617,7 +661,8 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
             target.config(state='disabled')
 
     def enable_gui(self, enable: bool):
-        elts = [self.check_landscape, self.combo_A4, self.button_scan_fb, self.button_scan_adf, self.button_save]
+        elts = [self.check_landscape, self.combo_A4, self.button_scan_fb, self.button_scan_adf, self.button_save,
+                self.entry_dpi, self.combo_device]
         for widget in elts:
             if enable:
                 widget.config(state='readonly' if isinstance(widget, ttk.Combobox) else 'normal')
@@ -705,31 +750,47 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         # https://www.pythontutorial.net/tkinter/tkinter-combobox/
         # [Note: The var for the combobox needs to be a persistent variable.]
         self.var_combo_device = tk.StringVar()
-        self.combo_device = ttk.Combobox(self.tab1, textvariable=self.var_combo_device, width=self.width_column)
+        self.combo_device = ttk.Combobox(self.tab1, textvariable=self.var_combo_device) #, width=self.width_column)
         self.combo_device.grid(row=1,column=0, columnspan=2, sticky='ew')
         self.combo_device['values'] = '<empty>',
         self.combo_device['state'] = 'readonly'
         self.combo_device.current(0)
+        self.combo_device.bind('<<ComboboxSelected>>', lambda event: self.update_combo_resolution())
         Hovertip(self.combo_device, 'Once initialized, select the scanning device intended for usage.')
 
+        self.var_entry_dpi = tk.StringVar()
+        self.entry_dpi = tk.Entry(self.tab1, textvariable=self.var_entry_dpi)
+        self.entry_dpi.grid(row=2, column=0, sticky='ew')
+        self.var_entry_dpi.set(str(defaults['dpi'] if 'dpi' in defaults else '72'))
+        Hovertip(self.entry_dpi, 'DPI (dots per inch)-setting for the output image.')
+
+        self.var_combo_resolution = tk.StringVar()
+        self.combo_resolution = ttk.Combobox(self.tab1, textvariable=self.var_combo_resolution)
+        self.combo_resolution.grid(row=2,column=1, sticky='ew')
+        self.combo_resolution['values'] = '<unspecified>',
+        self.combo_resolution['state'] = 'readonly'
+        self.combo_resolution.bind('<<ComboboxSelected>>', lambda event: self.set_resolution_to_current_device())
+        self.combo_resolution.current(0)
+        Hovertip(self.combo_resolution, 'Once initialized, select the resolution for the input scanning device.')
+
         self.ta_log = tk.Text(self.tab1, height=10, width=self.width_column, state='normal', wrap=tk.WORD, takefocus=0)
-        self.ta_log.grid(row=2, column=0, columnspan=2, sticky='ewns')
+        self.ta_log.grid(row=3, column=0, columnspan=2, sticky='ewns')
         self.print('Initializing. Please wait.')
 
         self.button_scan_fb = tk.Button(self.tab1, image=self.icon_single, command=self.scan_single)
-        self.button_scan_fb.grid(row=3, column=0, sticky='ew')
+        self.button_scan_fb.grid(row=4, column=0, sticky='ew')
         Hovertip(self.button_scan_fb, 'Initialize a single flatbed scan.')
 
         self.button_scan_adf = tk.Button(self.tab1, image=self.icon_multi, command=self.scan_multi)
-        self.button_scan_adf.grid(row=3, column=1, sticky='ew')
+        self.button_scan_adf.grid(row=4, column=1, sticky='ew')
         Hovertip(self.button_scan_adf, 'Initialize a potential multi-scan from the automatic document feed.')
 
         self.button_save = tk.Button(self.tab1, image=self.icon_disk, command=self.save)
-        self.button_save.grid(row=4, column=0, columnspan=2, sticky='ew')
+        self.button_save.grid(row=5, column=0, columnspan=2, sticky='ew')
         Hovertip(self.button_save, 'Save the current images list to disk.')
 
         self.label_pages = tk.Label(self.tab1, text='Current number of pages: 0', relief=tk.RIDGE, anchor=tk.W, takefocus=0)
-        self.label_pages.grid(row=5, column=0, columnspan=2, sticky='ew')
+        self.label_pages.grid(row=6, column=0, columnspan=2, sticky='ew')
         Hovertip(self.label_pages, 'If a document were to be saved now it should receive this many pages.')
         # < ----------------------------------------------------------
         # > Control elements tab2. -----------------------------------
