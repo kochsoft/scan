@@ -121,25 +121,29 @@ The UI is actually optional.
 ```
 (Py313)$ python3 scan.py --help
 
-usage: scan.py [-h] [--list] [--dev DEV] [--dpi DPI] [--png] [--a4 A4]
-               [--landscape | --scan | --multi]
+usage: scan.py [-h] [--list] [--dev DEV] [--dpi DPI] [--resolution RESOLUTION]
+               [--resolutions] [--png] [--a4 A4] [--landscape] [--scan |
+               --multi]
                [pfname_out]
 
 Smallish UI project for offering the most common scanner functions of an Epson ET 4850 device.
 
 positional arguments:
-  pfname_out   Target pfname for scanner output.
+  pfname_out            Target pfname for scanner output.
 
 options:
-  -h, --help   show this help message and exit
-  --list       Identify all available devices and print the list.
-  --dev DEV    At least part of a device name. From known devices will use the first one that fits. If none is given, default 'airscan' will be used.
-  --dpi DPI    Either one or two dpi numbers for dpi_x and dpi_y. Default: 72
-  --png        Produce a set of png graphics rather than a comprehensive pdf file.
-  --a4 A4      Enforce A4 format. Give 'stretch' or 'pad' for stretching or merely pasting the original image content.
-  --landscape  Do a 90 degree rotation for landscape orientation (as opposed to portrait, AKA seascape).
-  --scan       Do a single flatbed scan.
-  --multi      Do an Automatic Document Feeder (ADF) scan.
+  -h, --help            show this help message and exit
+  --list                Identify all available devices and print the list.
+  --dev DEV             At least part of a device name. From known devices will use the first one that fits. If none is given, default 'airscan' will be used.
+  --dpi DPI             Either one or two dpi numbers for output file dpi_x and dpi_y. Default: 72
+  --resolution RESOLUTION
+                        Attempt to set the given value as resolution for the selected input scanning device.
+  --resolutions         List known resolution values for the selected input device.
+  --png                 Produce a set of png graphics rather than a comprehensive pdf file.
+  --a4 A4               Enforce A4 format. Give 'stretch' or 'pad' for stretching or merely pasting the original image content.
+  --landscape           Do a 90 degree rotation for landscape orientation (as opposed to portrait, AKA seascape).
+  --scan                Do a single flatbed scan.
+  --multi               Do an Automatic Document Feeder (ADF) scan.
 
 Example call:
 $ python3 scan.py --list

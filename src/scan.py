@@ -535,9 +535,9 @@ $ python3 scan.py --list"""
         parser.add_argument('--list', action='store_true', help="Identify all available devices and print the list.")
         parser.add_argument('--dev', type=str, help="At least part of a device name. From known devices will use the "+\
                             f"first one that fits. If none is given, default '{defaults['code']}' will be used.", default=defaults['code'])
-        parser.add_argument('--dpi', type=str, help=f"Either one or two dpi numbers for dpi_x and dpi_y. Default: {defaults['dpi']}", default=str(defaults['dpi']))
-        parser.add_argument('--resolution', type=str, help='Attempt to set the given value as resolution for the selected scanning device.')
-        parser.add_argument('--resolutions', action='store_true', help='List known resolution values for the selected device.')
+        parser.add_argument('--dpi', type=str, help=f"Either one or two dpi numbers for output file dpi_x and dpi_y. Default: {defaults['dpi']}", default=str(defaults['dpi']))
+        parser.add_argument('--resolution', type=str, help='Attempt to set the given value as resolution for the selected input scanning device.')
+        parser.add_argument('--resolutions', action='store_true', help='List known resolution values for the selected input device.')
         parser.add_argument('--png', action='store_true', help='Produce a set of png graphics rather than a comprehensive pdf file.')
         parser.add_argument('--a4', type=str, help="Enforce A4 format. Give 'stretch' or 'pad' for stretching or merely pasting the original image content.", default='none')
         parser.add_argument('--landscape', action='store_true', help='Do a 90 degree rotation for landscape orientation (as opposed to portrait, AKA seascape).')

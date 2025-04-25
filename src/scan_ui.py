@@ -170,7 +170,7 @@ class ScanGui:
             return
         self.listbox_preview.selection_clear(0, tk.END)
         self.listbox_preview.select_set(index)
-        #self.listbox_preview.yview_moveto(index/len(entries))
+        # self.listbox_preview.selection_anchor(index)
         self.listbox_preview.see(index)
 
     @property
@@ -292,8 +292,17 @@ class ScanGui:
             self.image_entries = keys
         self.entry_active_image = name2display
 
+    def handle_tab_changed(self, event):
+        """Activate the preview listbox on entering the tab."""
+        pass  # The following code does work. However, still not certain if I really want that.
+        #if self.listbox_preview['state'] != 'disabled' and self.tabControl.select() == str(self.tab2):
+        #    self.listbox_preview.focus_set()
+
     def handler_resize_label_preview(self, event):
         self.update_preview_image()
+
+    def handler_listbox_preview_delete(self, event):
+        self.delete_image()
 
     def handler_show_preview(self, event):
         self.show_preview()
@@ -611,7 +620,7 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         elts = [self.check_landscape, self.combo_A4, self.button_scan_fb, self.button_scan_adf, self.button_save]
         for widget in elts:
             if enable:
-                widget.config(state='normal')
+                widget.config(state='readonly' if isinstance(widget, ttk.Combobox) else 'normal')
             else:
                 widget.config(state='disabled')
 
@@ -638,25 +647,26 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.menu = tk.Menu(self.root)
         self.root.config(menu=self.menu)
 
+        # [Note: The underlining of the leading 'F' also implicitly defines <Alt>+<F> as a shortcut.]
         menu_files = tk.Menu(self.menu, tearoff=0)
-        self.menu.add_cascade(label='File', menu=menu_files)
+        self.menu.add_cascade(label='File', menu=menu_files, underline=0)
         menu_files.add_command(label='Save All ...', command=self.save)
         menu_files.add_separator()
         menu_files.add_command(label='Exit', command=self.root.quit)
 
         menu_tools = tk.Menu(self.menu, tearoff=0)
-        self.menu.add_cascade(label='Tools', menu=menu_tools)
+        self.menu.add_cascade(label='Tools', menu=menu_tools, underline=0)
         menu_tools.add_command(label='Delete Image Stack', command=self.delete_image_stack)
         menu_tools.add_command(label='Refresh Devices', command=self.refresh_devices)
 
         menu_help = tk.Menu(self.menu, tearoff=0)
-        self.menu.add_cascade(label='Help', menu=menu_help)
+        self.menu.add_cascade(label='Help', menu=menu_help, underline=0)
         menu_help.add_command(label='About ...', command=self.mb_about)
         # < ----------------------------------------------------------
         # > Tabs. ----------------------------------------------------
         self.tabControl = ttk.Notebook(self.root)
         # https://stackoverflow.com/questions/49976353/python-tk-notebook-tab-change-check
-        # self.tabControl.bind('<<NotebookTabChanged>>', fct)  # TODO! Hier war ich.
+        self.tabControl.bind('<<NotebookTabChanged>>', self.handle_tab_changed)
 
         self.tab1 = ttk.Frame(self.tabControl)
         self.tab1.columnconfigure(0, weight=1)
@@ -678,16 +688,6 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.tabControl.pack(expand=1, fill=tk.BOTH)
         # < ----------------------------------------------------------
         # > Control elements tab1. -----------------------------------
-        # https://www.pythontutorial.net/tkinter/tkinter-combobox/
-        # [Note: The var for the combobox needs to be a persistent variable.]
-        self.var_combo_device = tk.StringVar()
-        self.combo_device = ttk.Combobox(self.tab1, textvariable=self.var_combo_device, width=self.width_column)
-        self.combo_device.grid(row=1,column=0, columnspan=2, sticky='ew')
-        self.combo_device['values'] = '<empty>',
-        self.combo_device['state'] = 'readonly'
-        self.combo_device.current(0)
-        Hovertip(self.combo_device, 'Once initialized, select the scanning device intended for usage.')
-
         self.var_check_landscape = tk.IntVar()
         self.check_landscape = tk.Checkbutton(self.tab1, anchor=tk.W, text='Landscape', variable=self.var_check_landscape, command=self.update_preview_image)
         self.check_landscape.grid(row=0, column=0, sticky='ew')
@@ -702,7 +702,17 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.combo_A4.bind('<<ComboboxSelected>>', self.handler_update_preview_image)
         Hovertip(self.combo_A4, 'Enforce A4 format, either by stretching or by padding. This usually is unnecessary.')
 
-        self.ta_log = tk.Text(self.tab1, height=10, width=self.width_column, state='normal', wrap=tk.WORD)
+        # https://www.pythontutorial.net/tkinter/tkinter-combobox/
+        # [Note: The var for the combobox needs to be a persistent variable.]
+        self.var_combo_device = tk.StringVar()
+        self.combo_device = ttk.Combobox(self.tab1, textvariable=self.var_combo_device, width=self.width_column)
+        self.combo_device.grid(row=1,column=0, columnspan=2, sticky='ew')
+        self.combo_device['values'] = '<empty>',
+        self.combo_device['state'] = 'readonly'
+        self.combo_device.current(0)
+        Hovertip(self.combo_device, 'Once initialized, select the scanning device intended for usage.')
+
+        self.ta_log = tk.Text(self.tab1, height=10, width=self.width_column, state='normal', wrap=tk.WORD, takefocus=0)
         self.ta_log.grid(row=2, column=0, columnspan=2, sticky='ewns')
         self.print('Initializing. Please wait.')
 
@@ -718,12 +728,12 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.button_save.grid(row=4, column=0, columnspan=2, sticky='ew')
         Hovertip(self.button_save, 'Save the current images list to disk.')
 
-        self.label_pages = tk.Label(self.tab1, text='Current number of pages: 0', relief=tk.RIDGE, anchor=tk.W)
+        self.label_pages = tk.Label(self.tab1, text='Current number of pages: 0', relief=tk.RIDGE, anchor=tk.W, takefocus=0)
         self.label_pages.grid(row=5, column=0, columnspan=2, sticky='ew')
         Hovertip(self.label_pages, 'If a document were to be saved now it should receive this many pages.')
         # < ----------------------------------------------------------
         # > Control elements tab2. -----------------------------------
-        self.label_preview = tk.Label(self.tab2, relief=tk.RIDGE, anchor=tk.W)
+        self.label_preview = tk.Label(self.tab2, relief=tk.RIDGE, anchor=tk.W, takefocus=0)
         self.label_preview['image'] = self.icon_empty
         self.label_preview.grid(row=0, column=0, columnspan=3, sticky='nsew')
         self.label_preview.bind('<Configure>', self.handler_resize_label_preview)
@@ -742,7 +752,8 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.listbox_preview.bind('<<ListboxSelect>>', self.handler_show_preview)
         self.listbox_preview.bind('<Button-1>', self.handler_listbox_preview_b1dn)
         self.listbox_preview.bind('<ButtonRelease-1>', self.handler_listbox_preview_b1up)
-        self.scrollbar_preview = tk.Scrollbar(self.listbox_preview, orient='vertical')
+        self.listbox_preview.bind('<Delete>', self.handler_listbox_preview_delete)
+        self.scrollbar_preview = tk.Scrollbar(self.listbox_preview, orient='vertical', takefocus=0)
         self.scrollbar_preview.config(command=self.listbox_preview.yview)
         self.scrollbar_preview.pack(side="right", fill="y")
         self.listbox_preview.config(yscrollcommand=self.scrollbar_preview.set)
@@ -752,7 +763,7 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.button_delete_image.grid(row=1, column=2, rowspan=2, sticky='nsew')
         Hovertip(self.button_delete_image, 'Delete the currently visible image.')
 
-        self.label_pages2 = tk.Label(self.tab2, text='Current number of pages: 0', relief=tk.RIDGE, anchor=tk.W)
+        self.label_pages2 = tk.Label(self.tab2, text='Current number of pages: 0', relief=tk.RIDGE, anchor=tk.W, takefocus=0)
         self.label_pages2.grid(row=4, column=0, columnspan=2, sticky='ew')
         Hovertip(self.label_pages2, 'If a document were to be saved now it should receive this many pages.')
         # < ----------------------------------------------------------
