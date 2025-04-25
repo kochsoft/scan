@@ -47,7 +47,7 @@ from PIL.Image import Image
 # Default values for some config parameters. Adjust to your own needs.
 defaults = {
     # Target device identifier. Use --list to get options. 'dev' keys are the first entries in each device tuple. E.g., 'v4l:/dev/video2'.
-    'code': 'airscan', #'airscan:e0:EPSON ET-4850 Series',
+    'code': 'airscan', # 'airscan:e0:EPSON ET-4850 Series'
     # Dots per inch.
     'dpi': 72,
     # output pfname. Example: str(Path(os.getcwd()) / Path("scan.pdf")) is the 'scan.pdf' in the current working dir.
@@ -146,10 +146,12 @@ class Scan:
         """:returns a proper code for sane.open. Or None, in case of failure."""
         if code_hint is None:
             code_hint = defaults['code']
+        # First, try an exact match.
         for code_dev in Scan.data_devices_info:
             code = code_dev[0].lower()
             if code_hint.lower() == code:
                 return code_dev[0]
+        # Second, attempt to settle for partial match.
         for code_dev in Scan.data_devices_info:
             code = code_dev[0].lower()
             if code_hint.lower() in code:
@@ -174,11 +176,16 @@ class Scan:
         return res[:-1]
 
     @staticmethod
-    def init_device(code_hint: str) -> int:
+    def init_device(code_hint: str, *, fallback_to_first = False) -> int:
         code = Scan.complete_code_hint(code_hint)
         if code is None:
-            _log.warning(f"Failure to obtain code from code hint '{code_hint}'. Available codes: {Scan.get_available_codes()}")
-            return 1
+            codes_available = Scan.get_available_codes()
+            if codes_available and fallback_to_first:
+                _log.warning(f"Failure to obtain code from code hint '{code_hint}'. Picking first of available codes: {codes_available}")
+                code = codes_available[0]
+            else:
+                _log.warning(f"Failure to obtain code from code hint '{code_hint}'. Available device codes: {codes_available}")
+                return 1
         if code in Scan.data_devices:
             Scan.data_devices[code].close()
         try:
@@ -290,7 +297,6 @@ class Scan:
             sys.exit(0)
 
         self.code_hint = arguments.dev
-        self.code = Scan.complete_code_hint(self.code_hint) if self.code_hint else None
         self.images = odict()  # type: OrderedDict[str, Image]
 
         self.resolution = arguments.resolution  # type: Optional[Union[int, str]]
@@ -302,7 +308,9 @@ class Scan:
             pfname_out = arguments.pfname_out  # type: str
             format_output = E_OutputType.OT_PNG if (arguments.png or pfname_out.lower().endswith('png')) else E_OutputType.OT_PDF
             scan_tp = E_ScanType.ST_MULTI_ADF if arguments.multi else E_ScanType.ST_SINGLE_FLATBED
-            Scan.init_device(self.code)
+            Scan.init_device(self.code, fallback_to_first=True)
+            if len(Scan.data_devices):
+                self.code_hint = list(Scan.data_devices.values())[0].devname
             self.scan(scan_tp)
             if self.images and arguments.pfname_out:
                 self.print(f"Attempting to write {len(self.images)} images to file: '{arguments.pfname_out}'.")
@@ -312,6 +320,10 @@ class Scan:
                 (self.print(f"Failure to scan any images."))
         else:
             cb_init()
+
+    @property
+    def code(self) -> str:
+        return Scan.complete_code_hint(self.code_hint)
 
     def handle_argument_resolutions(self):
         if err := Scan.init_device(self.code):
@@ -350,6 +362,38 @@ class Scan:
             return 1
         else:
             return 0
+
+    @staticmethod
+    def build_geometry_desc(img: Image, dpi = None) -> str:
+        """:returns a human-readable string describing elementary image geometry."""
+        dpi = img.info['dpi'] if 'dpi' in img.info else Scan.dpi2tuple(dpi)  # type: Optional[Tuple[int, int]]
+        width_px, height_px = img.size
+        res = f"(nx: {width_px}, ny: {height_px}) px"
+        if dpi is not None:
+            dpmm = tuple([val / 25.4 for val in dpi])
+            if all([d > 0. for d in dpmm]):
+                width_mm, height_mm = width_px / dpmm[0], height_px / dpmm[1]
+                scape = ''
+                if width_mm < height_mm:
+                    scape = 'seascape: '
+                elif width_mm > height_mm:
+                    scape = 'landscape: '
+                res += f", {scape}(w: {round(width_mm)}, h: {round(height_mm)}) mm at dpi: (x: {round(dpi[0])}, y: {round(dpi[1])})"
+                if all([width_mm > 0., height_mm > 0.]):
+                    d_short = width_mm if width_mm < height_mm else height_mm
+                    d_long  = width_mm if width_mm > height_mm else height_mm
+                    tol = sqrt(2) * 0.05
+                    if abs((d_long / d_short) - sqrt(2)) < tol:
+                        # d_long == 297mm are DIN A4 => 297*(sqrt(2)^4) == 1188mm are DIN A0
+                        a = -2.0 * log(float(d_long) / 1188.0, 2.0) / log(2.0, 2.0)
+                        if abs(a - round(a)) < 0.1:
+                            sa = str(round(a))
+                        else:
+                            sa = f'{round(a, 1)}'
+                        if sa[0] == '-':
+                            sa = f"({sa})"
+                        res += f", DIN A{sa}"
+        return res
 
     @staticmethod
     def dpi2tuple(dpi: Optional[Union[Number, Tuple[Number, Number]]] = None, *, min_dpi=0.01) -> Tuple[Number, Number]:
@@ -472,6 +516,7 @@ class Scan:
         Scan.set_resolution(device, self.resolution)
         n0 = len(self.images)
         Scan.data_request_stop = False
+        failure = False
         while True:
             if Scan.data_request_stop:
                 self.print("Stop request received. Breaking acquisition loop.")
@@ -484,6 +529,9 @@ class Scan:
             except Exception as e:
                 if str(e) == 'Document feeder out of documents':
                     self.print('Document feeder is empty.')
+                elif str(e) == 'Invalid argument':
+                    self.print(f"Failure to scan from device '{self.code}'.")
+                    failure = True
                 else:
                     self.print(f"Stopping ADF processing: {str(e)}")
                 break
@@ -491,7 +539,8 @@ class Scan:
         if code in Scan.data_devices:
             del Scan.data_devices[code]
         n1 = len(self.images) - n0
-        self.print("Scanned 1 new image." if n1 == 1 else f"Scanned {n1} new images.")
+        msg_fail = ' prior to failure' if failure else ''
+        self.print("Scanned 1 new image." if n1 == 1 else f"Scanned {n1} new images{msg_fail}.")
         if cb_done:
             cb_done()
         return images
@@ -509,6 +558,7 @@ class Scan:
         Scan.set_resolution(device, self.resolution)
         n0 = len(images)
         Scan.data_request_stop = False
+        failure = False
         try:
             image = device.scan()
             if Scan.data_request_stop:
@@ -516,12 +566,14 @@ class Scan:
             else:
                 images[Scan.get_next_name('{:03}_flatbed')] = image
         except _sane.error as err:
-            print(f"Failure to scan from device '{device}': {err}")
+            self.print(f"Failure to scan from device '{self.code}': {err}")
+            failure = True
         device.close()
         if code in Scan.data_devices:
             del Scan.data_devices[code]
-        n1 = len(images) - n0
-        self.print("Scanned 1 new image." if n1 == 1 else f"Scanned {n1} new images.")
+        if not failure:
+            n1 = len(images) - n0
+            self.print("Scanned 1 new image." if n1 == 1 else f"Scanned {n1} new images.")
         if cb_done:
             cb_done()
         return images
@@ -551,7 +603,7 @@ $ python3 scan.py --list"""
         parser.add_argument('--resolution', type=str, help='Attempt to set the given value as resolution for the selected input scanning device.')
         parser.add_argument('--resolutions', action='store_true', help='List known resolution values for the selected input device.')
         parser.add_argument('--png', action='store_true', help='Produce a set of png graphics rather than a comprehensive pdf file.')
-        parser.add_argument('--a4', type=str, help="Enforce A4 format. Give 'stretch' or 'pad' for stretching or merely pasting the original image content.", default='none')
+        parser.add_argument('--a4', type=str, help="Enforce A4 format. Give 'stretch' or 'pad' for stretching or padding the original image content.", default='none')
         parser.add_argument('--landscape', action='store_true', help='Do a 90 degree rotation for landscape orientation (as opposed to portrait, AKA seascape).')
         group = parser.add_mutually_exclusive_group()
         group.add_argument('--scan', action='store_true', help='Do a single flatbed scan.')

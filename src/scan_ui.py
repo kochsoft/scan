@@ -111,6 +111,7 @@ class ScanGui:
         self.button_save = None  # type: Optional[tk.Button]
         self.label_pages = None  # type: Optional[tk.Label]
         self.label_pages2 = None  # type: Optional[tk.Label]
+        self.label_geom = None  # type: Optional[tk.Label]
 
         self.image_empty = None  # type: Optional[Image]
         self.image_preview = None  # type: Optional[Image]
@@ -187,7 +188,7 @@ class ScanGui:
             return
         self.listbox_preview.selection_clear(0, tk.END)
         self.listbox_preview.select_set(index)
-        # self.listbox_preview.selection_anchor(index)
+        self.listbox_preview.activate(index=index)
         self.listbox_preview.see(index)
 
     @property
@@ -236,6 +237,10 @@ class ScanGui:
             text = re.sub('[0-9]+', str(val), str(self.label_pages2.cget('text')))
             self.label_pages2.config(text=text)
 
+    def set_label_geom(self, image: Optional[Image] = None, dpi = None):
+        text = Scan.build_geometry_desc(image, dpi) if image else '-'
+        self.label_geom.config(text=text)
+
     @property
     def status_A4(self) -> E_Status_A4:
         val = self.combo_A4.current()
@@ -281,6 +286,7 @@ class ScanGui:
                 self.image_preview = image
         self.photo_preview = ImageTk.PhotoImage(self.image_preview) if self.image_preview else self.icon_empty
         self.label_preview['image'] = self.photo_preview
+        self.set_label_geom(None if is_empty else image, self.dpi)
 
     def handler_update_preview_image(self, event):
         self.update_preview_image()
@@ -488,6 +494,7 @@ class ScanGui:
     def handler_scan_single_multi(self, event: tk.Event):
         """Very special interest. Triggered every time scan_adf completed another scan."""
         self.label_pages_number = len(self.scan.images)
+        # self.update_previews_tab(self.entry_active_image)  #<< Nice, but also dangerous in terms of race conditions.
 
     def handler_scan(self, event: tk.Event):
         self.enable_gui(True)
@@ -501,7 +508,9 @@ class ScanGui:
         self.root.event_generate("<<init_complete>>", when='tail') #, state=123)
 
     def cb_scan_single_multi(self):
+        """Callback for when a single new image from an ADF multi_scan has been recorded."""
         self.root.event_generate("<<scan_complete_single_multi>>", when='tail')
+
     def cb_scan(self):
         self.root.event_generate("<<scan_complete>>", when='tail')  # , state=123)
 
@@ -785,7 +794,7 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.combo_A4['state'] = 'readonly'
         self.combo_A4.current(0)
         self.combo_A4.bind('<<ComboboxSelected>>', self.handler_update_preview_image)
-        Hovertip(self.combo_A4, 'Enforce A4 format, either by stretching or by padding. This usually is unnecessary.')
+        Hovertip(self.combo_A4, 'Enforce A4 format, either by stretching or by padding. Using this may alter image size, depending on input and output DPI settings.')
 
         self.ta_log = tk.Text(self.tab1, height=10, width=self.width_column, state='normal', wrap=tk.WORD, takefocus=0)
         self.ta_log.grid(row=3, column=0, columnspan=2, sticky='ewns')
@@ -820,7 +829,8 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.button_dn_image.grid(row=2, column=0, sticky='ew')
 
         # https://stackoverflow.com/questions/10048609/how-to-keep-selections-highlighted-in-a-tkinter-listbox
-        self.listbox_preview = tk.Listbox(self.tab2, exportselection=False)
+        # https://stackoverflow.com/questions/79592530/tkinter-listbox-has-a-shadow-selection-beside-the-proper-selection-how-to-syn
+        self.listbox_preview = tk.Listbox(self.tab2, exportselection=False, activestyle='none')
         self.listbox_preview.grid(row=1, column=1, rowspan=2, sticky='nsew')
         self.listbox_preview.insert(tk.END, ScanGui.data_name_empty)
         self.listbox_preview.select_set(0)
@@ -838,8 +848,12 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.button_delete_image.grid(row=1, column=2, rowspan=2, sticky='nsew')
         Hovertip(self.button_delete_image, 'Delete the currently visible image.')
 
+        self.label_geom = tk.Label(self.tab2, text='-', relief=tk.RIDGE, anchor=tk.W, takefocus=0)
+        self.label_geom.grid(row=4, column=0, columnspan=3, sticky='ew')
+        Hovertip(self.label_geom, 'May show some basic geometry information regarding the current preview image.')
+
         self.label_pages2 = tk.Label(self.tab2, text='Current number of pages: 0', relief=tk.RIDGE, anchor=tk.W, takefocus=0)
-        self.label_pages2.grid(row=4, column=0, columnspan=2, sticky='ew')
+        self.label_pages2.grid(row=5, column=0, columnspan=3, sticky='ew')
         Hovertip(self.label_pages2, 'If a document were to be saved now it should receive this many pages.')
         # < ----------------------------------------------------------
 
