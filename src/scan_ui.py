@@ -147,6 +147,18 @@ class ScanGui:
         return decision == tkinter.messagebox.OK
 
     @property
+    def dpi(self) -> Tuple[Number, Number]:
+        """:return Output image resolution in DPI."""
+        try:
+            val = int(self.var_entry_dpi.get())
+        except ValueError:
+            try:
+                val = int(defaults['dpi']) if 'dpi' in defaults else 72
+            except ValueError:
+                val = 72
+        return Scan.dpi2tuple(val)
+
+    @property
     def label_pages_number(self) -> int:
         """Getter for the number that is displayed in self.label_pages_number."""
         if not self.label_pages:
@@ -246,7 +258,7 @@ class ScanGui:
         if not is_empty:
             need_A4 = self.status_A4
             if need_A4 != E_Status_A4.SA_NONE:
-                image = Scan.convert_to_A4(image, stretch_content=(need_A4==E_Status_A4.SA_STRETCH))
+                image = Scan.convert_to_A4(image, dpi=self.dpi, stretch_content=(need_A4==E_Status_A4.SA_STRETCH))
             if bool(self.var_check_landscape.get()):
                 image = image.rotate(90, expand=True)
         sz_widget = self.label_preview.winfo_width(), self.label_preview.winfo_height()
@@ -607,7 +619,8 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         if not pfname_out:
             return
         tp = E_OutputType.OT_PNG if pfname_out.lower().endswith('png') else E_OutputType.OT_PDF
-        success = 'Failure to save' if self.scan.save_images(pfname_out, self.scan.images, tp=tp, enforce_A4=self.status_A4, landscape=landscape) else 'Successfully saved'
+        success = 'Failure to save' if self.scan.save_images(pfname_out, self.scan.images, tp=tp, enforce_A4=self.status_A4,
+                                                             landscape=landscape, dpi=self.dpi) else 'Successfully saved'
         self.print(f"{success} {len(self.scan.images)} images. Using base pfname '{pfname_out}'.")
 
     def select_image(self):
@@ -662,7 +675,7 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
 
     def enable_gui(self, enable: bool):
         elts = [self.check_landscape, self.combo_A4, self.button_scan_fb, self.button_scan_adf, self.button_save,
-                self.entry_dpi, self.combo_device]
+                self.entry_dpi, self.combo_device, self.combo_resolution]
         for widget in elts:
             if enable:
                 widget.config(state='readonly' if isinstance(widget, ttk.Combobox) else 'normal')
@@ -733,25 +746,11 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
         self.tabControl.pack(expand=1, fill=tk.BOTH)
         # < ----------------------------------------------------------
         # > Control elements tab1. -----------------------------------
-        self.var_check_landscape = tk.IntVar()
-        self.check_landscape = tk.Checkbutton(self.tab1, anchor=tk.W, text='Landscape', variable=self.var_check_landscape, command=self.update_preview_image)
-        self.check_landscape.grid(row=0, column=0, sticky='ew')
-        Hovertip(self.check_landscape, 'Normally files will be saved seascape (AKA portrait, i.e., long edge is vertical). Check this to get landscape mode.')
-
-        self.var_combo_A4 = tk.StringVar()
-        self.combo_A4 = ttk.Combobox(self.tab1, textvariable=self.var_combo_A4)
-        self.combo_A4.grid(row=0, column=1, sticky='ew')
-        self.combo_A4['values'] = 'force A4: none', 'force A4: padding', 'force A4: stretching'
-        self.combo_A4['state'] = 'readonly'
-        self.combo_A4.current(0)
-        self.combo_A4.bind('<<ComboboxSelected>>', self.handler_update_preview_image)
-        Hovertip(self.combo_A4, 'Enforce A4 format, either by stretching or by padding. This usually is unnecessary.')
-
         # https://www.pythontutorial.net/tkinter/tkinter-combobox/
         # [Note: The var for the combobox needs to be a persistent variable.]
         self.var_combo_device = tk.StringVar()
         self.combo_device = ttk.Combobox(self.tab1, textvariable=self.var_combo_device) #, width=self.width_column)
-        self.combo_device.grid(row=1,column=0, columnspan=2, sticky='ew')
+        self.combo_device.grid(row=0,column=0, columnspan=2, sticky='ew')
         self.combo_device['values'] = '<empty>',
         self.combo_device['state'] = 'readonly'
         self.combo_device.current(0)
@@ -760,18 +759,33 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
 
         self.var_entry_dpi = tk.StringVar()
         self.entry_dpi = tk.Entry(self.tab1, textvariable=self.var_entry_dpi)
-        self.entry_dpi.grid(row=2, column=0, sticky='ew')
+        self.entry_dpi.grid(row=1, column=0, sticky='ew')
         self.var_entry_dpi.set(str(defaults['dpi'] if 'dpi' in defaults else '72'))
-        Hovertip(self.entry_dpi, 'DPI (dots per inch)-setting for the output image.')
+        self.entry_dpi.bind('<FocusOut>', self.handler_update_preview_image)
+        Hovertip(self.entry_dpi, 'DPI (dots per inch)-setting for the output image. Affects image quality if specific paper size is enforced.')
 
         self.var_combo_resolution = tk.StringVar()
         self.combo_resolution = ttk.Combobox(self.tab1, textvariable=self.var_combo_resolution)
-        self.combo_resolution.grid(row=2,column=1, sticky='ew')
+        self.combo_resolution.grid(row=1,column=1, sticky='ew')
         self.combo_resolution['values'] = '<unspecified>',
         self.combo_resolution['state'] = 'readonly'
         self.combo_resolution.bind('<<ComboboxSelected>>', lambda event: self.set_resolution_to_current_device())
         self.combo_resolution.current(0)
-        Hovertip(self.combo_resolution, 'Once initialized, select the resolution for the input scanning device.')
+        Hovertip(self.combo_resolution, 'DPI (dots per inch)-setting for the input image as recorded from the scanning device.')
+
+        self.var_check_landscape = tk.IntVar()
+        self.check_landscape = tk.Checkbutton(self.tab1, anchor=tk.W, text='Landscape', variable=self.var_check_landscape, command=self.update_preview_image)
+        self.check_landscape.grid(row=2, column=0, sticky='ew')
+        Hovertip(self.check_landscape, 'Normally files will be saved seascape (AKA portrait, i.e., long edge is vertical). Check this to get landscape mode.')
+
+        self.var_combo_A4 = tk.StringVar()
+        self.combo_A4 = ttk.Combobox(self.tab1, textvariable=self.var_combo_A4)
+        self.combo_A4.grid(row=2, column=1, sticky='ew')
+        self.combo_A4['values'] = 'force A4: none', 'force A4: padding', 'force A4: stretching'
+        self.combo_A4['state'] = 'readonly'
+        self.combo_A4.current(0)
+        self.combo_A4.bind('<<ComboboxSelected>>', self.handler_update_preview_image)
+        Hovertip(self.combo_A4, 'Enforce A4 format, either by stretching or by padding. This usually is unnecessary.')
 
         self.ta_log = tk.Text(self.tab1, height=10, width=self.width_column, state='normal', wrap=tk.WORD, takefocus=0)
         self.ta_log.grid(row=3, column=0, columnspan=2, sticky='ewns')
