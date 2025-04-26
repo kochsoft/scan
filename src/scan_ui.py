@@ -206,10 +206,14 @@ class ScanGui:
         if not entries:
             entries = [ScanGui.data_name_empty]
         entry_active = self.entry_active_image
-        self.listbox_preview.delete(0, tk.END)
-        for j in range(len(entries)):
-            self.listbox_preview.insert(tk.END, entries[j])
-        self.entry_active_image = entry_active
+        if self.thread_scan and self.thread_scan.is_alive() and self.listbox_preview.get(0) != ScanGui.data_name_empty:
+            # [Note: While scanning the list cannot be altered by this UI. Hence only append and do not force-highlight last image.]
+            self.listbox_preview.insert(tk.END, entries[-1])
+        else:
+            self.listbox_preview.delete(0, tk.END)
+            for j in range(len(entries)):
+                self.listbox_preview.insert(tk.END, entries[j])
+            self.entry_active_image = entry_active
 
     @property
     def image_keys(self) -> List[str]:
@@ -330,10 +334,22 @@ class ScanGui:
     def handler_show_preview(self, event):
         self.show_preview()
 
+    def check_sort_denied_while_scanning(self, show_msg: bool, msg: str = 'Unable to perform action on') -> int:
+        if self.thread_scan and self.thread_scan.is_alive():
+            if show_msg:
+                msg = f"""{msg} list while scan is in progress.\nPlease try again after scan concluded."""
+                tkinter.messagebox.Message(self.root, message=msg, title='Scan in progress', type=tkinter.messagebox.OK).show()
+            return 1
+        else:
+            return 0
+
     def handler_listbox_preview_b1up(self, event):
         """For changing the order of images. Will place the image that was selected at mouse1-down time before or
         after the image that was selected at mouse1-up time. Before or after depends on whether the drop occurred
         above or below the middle of the target line."""
+        if self.thread_scan and self.thread_scan.is_alive():
+            self.check_sort_denied_while_scanning(False)
+            return
         index1 = self.listbox_preview.nearest(event.y)
         index0 = self.index_listbox_preview_at_b1_dn
         if index0 == index1:
@@ -357,6 +373,8 @@ class ScanGui:
 
     def handler_listbox_preview_b1dn(self, event):
         """Merely records the index of the selected item in the preview listbox. Needed by handler_listbox_preview_b1up."""
+        if self.check_sort_denied_while_scanning(False):
+            return
         self.index_listbox_preview_at_b1_dn = self.listbox_preview.nearest(event.y)
 
     def image_up_dn(self, up: bool):
@@ -495,7 +513,8 @@ class ScanGui:
     def handler_scan_single_multi(self, event: tk.Event):
         """Very special interest. Triggered every time scan_adf completed another scan."""
         self.label_pages_number = len(self.scan.images)
-        # self.update_previews_tab(self.entry_active_image)  #<< Nice, but also dangerous in terms of race conditions.
+        # [Note: Nifty, adding new images to preview while still scanning. But also dangerous. Beware race conditions. Do not alter images list.]
+        self.update_previews_tab(self.entry_active_image)
 
     def handler_scan(self, event: tk.Event):
         self.enable_gui(True)
@@ -638,6 +657,8 @@ April 2025, Markus-H. Koch ( https://github.com/kochsoft/scan )
 
     def delete_image(self):
         """Drop an image from the images list and update the preview tab accordingly."""
+        if self.check_sort_denied_while_scanning(True, "Unable to delete from"):
+            return
         name = self.entry_active_image
         if name is None:
             return
