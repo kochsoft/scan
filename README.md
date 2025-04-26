@@ -28,14 +28,15 @@ in terms of user-experience.
 
 ## What is it?
 
-This project provides a nice graphical user interface for simplistic,
+This project provides a graphical user interface for simplistic,
 
 * plain flatbed scanning.
 * ADF (Automatic Document Feeder) scanning.
-* Saving into either a single pdf or multiple pngs. Landscape if requested.
-* DIN A4 paper format may be enforced if so desired.
+* Saving into either a single pdf or multiple pngs. Landscape, if requested.
+* DIN A4 paper format may be enforced, if so desired.
+* Both input and output image resolution may be set.
 
-The program collects scans in a list that may be viewed and shortened
+The program collects scans in a list that may be viewed, reordered and shortened
 from a secondary preview tab.
 
 ## How is it? (Setup!)
@@ -44,15 +45,15 @@ The entire program is in **Python 3**. Extra requirements are
 
 * `tkinter`, the GUI system (unless you are happy with console-only `scan.py`),
 * `python-sane`, the sane library providing means to access scanners, and
-* `pillow`, data serializations software for handling images.
+* `pillow`, data serialization software for handling images.
 
 Copy the `./src` directory's contents to where you want them, maintaining
 directory structure.
 
-At the top of `scan.py` is a short section **config.sys** where some
+Near the top of `scan.py` is a short section **config.sys** where some
 default values can be set to your needs.
 
-Most notably, the default scanner `code`. My own scanner is embedded in
+**Most notably**, the default scanner `code`. My own scanner is embedded in
 an Epson ET-4850 printer and is set as the default default in the file:
 
 ```
